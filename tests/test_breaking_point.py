@@ -1,4 +1,4 @@
-"""Breaking Point Tests — Find Where Nova_ Actually Breaks.
+"""Breaking Point Tests — Find Where Nova Actually Breaks.
 
 Unlike battle tests (which verify defenses hold), these tests target
 specific unguarded code paths identified through source analysis:

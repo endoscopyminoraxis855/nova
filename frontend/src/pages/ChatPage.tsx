@@ -199,14 +199,14 @@ export default function ChatPage() {
           {messages.length === 0 && !streaming && (
             <div className="flex h-full items-center justify-center">
               <div className="text-center animate-fade-in">
-                {/* Nova_ logo */}
+                {/* Nova logo */}
                 <div className="relative mx-auto mb-6 h-16 w-16">
                   <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-nova-accent/20 to-nova-glow/10 blur-xl" />
                   <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl border border-nova-border bg-nova-surface shadow-[var(--shadow-nova-glow)]">
                     <MessageSquare size={28} strokeWidth={1.5} className="text-nova-accent" />
                   </div>
                 </div>
-                <p className="text-2xl font-bold bg-gradient-to-r from-nova-text to-nova-glow bg-clip-text text-transparent">Nova_</p>
+                <p className="text-2xl font-bold bg-gradient-to-r from-nova-text to-nova-glow bg-clip-text text-transparent">Nova</p>
                 <p className="mt-1.5 text-sm text-nova-text-dim">Start a conversation</p>
               </div>
             </div>

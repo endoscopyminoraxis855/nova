@@ -1,4 +1,4 @@
-"""Nova_ MCP Server — expose Nova's intelligence as MCP tools.
+"""Nova MCP Server — expose Nova's intelligence as MCP tools.
 
 Allows external agents (Claude Code, Cursor, etc.) to query Nova's
 long-term memory, knowledge graph, lessons, and document store.
@@ -148,7 +148,7 @@ def create_mcp_server(
     kg: KnowledgeGraph | None = None,
     retriever: Retriever | None = None,
 ) -> Server:
-    """Create and configure a Nova_ MCP server with all tool handlers.
+    """Create and configure a Nova MCP server with all tool handlers.
 
     Callers must provide a SafeDB instance (already init_schema'd).
     Service instances are created lazily if not provided.

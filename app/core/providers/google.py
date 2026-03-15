@@ -62,7 +62,7 @@ class GoogleProvider:
     # ------------------------------------------------------------------
 
     def _convert_messages(self, messages: list[dict]) -> tuple[str, list[dict]]:
-        """Convert Nova_ messages to Gemini format (contents array).
+        """Convert Nova messages to Gemini format (contents array).
 
         Concatenates leading system messages into one system instruction.
         Mid-conversation system messages (tool results, critiques) become user messages.
@@ -88,7 +88,7 @@ class GoogleProvider:
         return system, contents
 
     def _convert_tools(self, tools: list[dict]) -> list[dict]:
-        """Convert Nova_ tool list to Gemini functionDeclarations format."""
+        """Convert Nova tool list to Gemini functionDeclarations format."""
         declarations = []
         for t in tools:
             declarations.append({

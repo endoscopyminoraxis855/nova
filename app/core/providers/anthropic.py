@@ -92,7 +92,7 @@ class AnthropicProvider:
         return system, conversation
 
     def _convert_tools(self, tools: list[dict]) -> list[dict]:
-        """Convert Nova_ tool list to Anthropic tool format."""
+        """Convert Nova tool list to Anthropic tool format."""
         result = []
         for t in tools:
             result.append({

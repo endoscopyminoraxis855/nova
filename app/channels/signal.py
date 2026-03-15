@@ -1,4 +1,4 @@
-"""Signal channel adapter — connects Nova_ to Signal via signal-cli REST API."""
+"""Signal channel adapter — connects Nova to Signal via signal-cli REST API."""
 
 from __future__ import annotations
 

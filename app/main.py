@@ -1,4 +1,4 @@
-"""Nova_ — Sovereign Personal AI.
+"""Nova — Sovereign Personal AI.
 
 FastAPI application entry point.
 """
@@ -73,7 +73,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle."""
     # --- Startup ---
-    logger.info("Nova_ starting up...")
+    logger.info("Nova starting up...")
 
     # Validate configuration
     config_warnings = config.validate()
@@ -375,12 +375,12 @@ async def lifespan(app: FastAPI):
             daily_digest.start()
             logger.info("Daily digest started (hour=%d)", config.DIGEST_HOUR)
 
-    logger.info("Nova_ ready.")
+    logger.info("Nova ready.")
 
     yield
 
     # --- Shutdown ---
-    logger.info("Nova_ shutting down...")
+    logger.info("Nova shutting down...")
 
     # Stop heartbeat + proactive
     if heartbeat_loop:
@@ -426,7 +426,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Nova_",
+    title="Nova",
     version="1.0.0",
     description="Sovereign Personal AI",
     lifespan=lifespan,

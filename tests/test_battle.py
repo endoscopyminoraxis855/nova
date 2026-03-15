@@ -1,4 +1,4 @@
-"""Adversarial Battle Tests — Push Nova_ to the Limit.
+"""Adversarial Battle Tests — Push Nova to the Limit.
 
 These aren't unit tests. They're designed to BREAK things:
 - Race conditions under concurrent load
@@ -14,7 +14,7 @@ These aren't unit tests. They're designed to BREAK things:
 - Brute force auth attacks
 - Access tier escape attempts
 
-If these pass, Nova_ is release-ready.
+If these pass, Nova is release-ready.
 """
 
 from __future__ import annotations

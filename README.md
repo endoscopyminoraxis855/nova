@@ -1,4 +1,4 @@
-# Nova_
+# Nova
 
 **The personal AI that actually learns from its mistakes.**
 
@@ -20,11 +20,11 @@ No other AI assistant does this.
 
 ---
 
-## Why Nova_
+## Why Nova
 
-Nova_ is a sovereign personal AI that runs entirely on your hardware with zero cloud dependencies. It doesn't just answer questions — it gets permanently smarter through a self-improvement pipeline that no other open-source project has:
+Nova is a sovereign personal AI that runs entirely on your hardware with zero cloud dependencies. It doesn't just answer questions — it gets permanently smarter through a self-improvement pipeline that no other open-source project has:
 
-| | Nova_ | OpenClaw (216K stars) | Khoj (32K stars) | Open WebUI (124K stars) |
+| | Nova | OpenClaw (216K stars) | Khoj (32K stars) | Open WebUI (124K stars) |
 |---|---|---|---|---|
 | Learns from corrections | **Full pipeline** | No | No | No |
 | Fine-tunes itself | **DPO + A/B eval** | No | No | No |
@@ -79,7 +79,7 @@ No LangChain. No LangGraph. No agent frameworks. ~74 files of async Python + htt
 
 ## The Learning Loop
 
-This is what makes Nova_ unique. Every conversation makes it smarter:
+This is what makes Nova unique. Every conversation makes it smarter:
 
 1. **Correction Detection** (2-stage) — regex pre-filter + LLM confirmation extracts what was wrong and what's correct
 2. **Lesson Storage** — topic, wrong answer, correct answer, lesson text — retrieved on future similar queries
@@ -123,7 +123,7 @@ Plus dynamically created custom tools and MCP-discovered external tools.
 
 ## Channels
 
-Talk to Nova_ where you already are:
+Talk to Nova where you already are:
 
 | Channel | Type | Config |
 |---------|------|--------|
@@ -136,7 +136,7 @@ All channels support phone-number allowlisting, message splitting, and graceful 
 
 ## Heartbeat Monitors
 
-14 proactive monitors run on schedule — Nova_ works even when you're not talking to it:
+14 proactive monitors run on schedule — Nova works even when you're not talking to it:
 
 | Monitor | Schedule | What it does |
 |---------|----------|-------------|
@@ -165,9 +165,9 @@ Temporal knowledge graph with structured facts:
 
 ## MCP Integration
 
-Nova_ is both an MCP **client** and **server** — unique in the landscape:
+Nova is both an MCP **client** and **server** — unique in the landscape:
 
-**As client:** Drop MCP tool configs in `/data/mcp/` and Nova_ discovers and uses them.
+**As client:** Drop MCP tool configs in `/data/mcp/` and Nova discovers and uses them.
 
 **As server:** Exposes 5 tools for Claude Code, Cursor, or any MCP client:
 - `nova_memory_query` — search user facts and conversations

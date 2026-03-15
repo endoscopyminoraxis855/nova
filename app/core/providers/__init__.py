@@ -1,4 +1,4 @@
-"""LLM providers — pluggable backends for Nova_'s brain."""
+"""LLM providers — pluggable backends for Nova's brain."""
 
 from app.core.providers.ollama import OllamaProvider
 from app.core.providers.openai import OpenAIProvider

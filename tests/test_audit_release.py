@@ -1,4 +1,4 @@
-"""Release-readiness audit tests for nova_.
+"""Release-readiness audit tests for Nova.
 
 Fresh tests written from scratch — no reuse of existing test code.
 Covers 20 critical areas for release-readiness verification.

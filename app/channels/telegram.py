@@ -1,4 +1,4 @@
-"""Telegram channel adapter — connects Nova_ to Telegram via python-telegram-bot."""
+"""Telegram channel adapter — connects Nova to Telegram via python-telegram-bot."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ class TelegramBot:
     async def _handle_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command."""
         await update.message.reply_text(
-            "Hello! I'm Nova_, your personal AI assistant. Send me a message to get started."
+            "Hello! I'm Nova, your personal AI assistant. Send me a message to get started."
         )
 
     async def _handle_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

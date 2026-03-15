@@ -1,4 +1,4 @@
-"""WhatsApp channel adapter — connects Nova_ to WhatsApp via Business API webhooks."""
+"""WhatsApp channel adapter — connects Nova to WhatsApp via Business API webhooks."""
 
 from __future__ import annotations
 

@@ -65,7 +65,7 @@ class OpenAIProvider:
     # ------------------------------------------------------------------
 
     def _convert_tools(self, tools: list[dict]) -> list[dict]:
-        """Convert Nova_ tool list to OpenAI function-calling format."""
+        """Convert Nova tool list to OpenAI function-calling format."""
         functions = []
         for t in tools:
             functions.append({

@@ -256,7 +256,7 @@ export default function ChatInput({ onSend, onStop, streaming, disabled }: Props
           onPaste={handlePaste}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          placeholder={transcribing ? "Transcribing..." : imageBase64 ? "Describe what you want to know..." : "Message Nova_..."}
+          placeholder={transcribing ? "Transcribing..." : imageBase64 ? "Describe what you want to know..." : "Message Nova..."}
           rows={1}
           className="flex-1 resize-none bg-transparent px-1 py-2 text-sm text-nova-text placeholder:text-nova-text-dim/60 outline-none"
           style={{ maxHeight: 150 }}

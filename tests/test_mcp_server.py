@@ -1,4 +1,4 @@
-"""Tests for the Nova_ MCP Server — tool definitions and handler logic.
+"""Tests for the Nova MCP Server — tool definitions and handler logic.
 
 Tests the MCP server's tool listing and the underlying service logic
 that each tool handler wraps, using a real in-memory SQLite database.

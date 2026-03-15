@@ -1,4 +1,4 @@
-"""Stress & battle tests — push Nova_ to the limits before open-source release.
+"""Stress & battle tests — push Nova to the limits before open-source release.
 
 10 test categories:
   1. Brain pipeline concurrency (10 concurrent think() calls)

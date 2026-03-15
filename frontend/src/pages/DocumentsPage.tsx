@@ -299,7 +299,7 @@ export default function DocumentsPage() {
                     <p className="text-sm text-nova-text-dim">
                       {uploadStatus === "reading"
                         ? `Reading file${uploadFile ? ` (${formatFileSize(uploadFile.size)})` : ""}...`
-                        : "Uploading to Nova_..."}
+                        : "Uploading to Nova..."}
                     </p>
                     {uploadFile && (
                       <p className="mt-1 flex items-center gap-1.5 text-xs text-nova-text-dim/60">

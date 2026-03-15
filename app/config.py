@@ -1,4 +1,4 @@
-"""Nova_ configuration — loaded from environment variables."""
+"""Nova configuration — loaded from environment variables."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ class Config:
     ENABLE_MCP: bool = field(default_factory=lambda: _env("ENABLE_MCP", "true").lower() == "true")
     MCP_CONFIG_DIR: str = field(default_factory=lambda: _env("MCP_CONFIG_DIR", "/data/mcp"))
 
-    # MCP Server (expose Nova_ as MCP server)
+    # MCP Server (expose Nova as MCP server)
     ENABLE_MCP_SERVER: bool = field(default_factory=lambda: _env("ENABLE_MCP_SERVER", "true").lower() == "true")
     MCP_SERVER_NAME: str = field(default_factory=lambda: _env("MCP_SERVER_NAME", "nova"))
 

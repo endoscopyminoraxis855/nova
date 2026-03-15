@@ -1,4 +1,4 @@
-"""Discord channel adapter — connects Nova_ to Discord via discord.py."""
+"""Discord channel adapter — connects Nova to Discord via discord.py."""
 
 from __future__ import annotations
 

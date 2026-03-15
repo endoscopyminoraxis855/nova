@@ -1,4 +1,4 @@
-# Nova_ — Development Guide
+# Nova — Development Guide
 
 ## What This Is
 
@@ -31,7 +31,7 @@ No LangChain. No LangGraph. Just async Python and httpx to Ollama.
 | `app/core/llm.py` | Provider-agnostic LLM interface: `invoke_nothink()`, `generate_with_tools()`, JSON extraction |
 | `app/core/providers/` | LLM backends: `ollama.py`, `openai.py`, `anthropic.py`, `google.py` |
 | `app/tools/mcp.py` | MCP client: discovers external MCP tools, wraps as BaseTool |
-| `app/mcp_server.py` | MCP server: exposes Nova_ as MCP server (memory, KG, lessons, docs) |
+| `app/mcp_server.py` | MCP server: exposes Nova as MCP server (memory, KG, lessons, docs) |
 | `app/core/prompt.py` | System prompt builder (8 blocks with truncation priority) |
 | `app/core/memory.py` | ConversationStore + UserFactStore + fact extraction |
 | `app/core/learning.py` | Correction detection (regex+LLM), lessons, training data |
@@ -214,7 +214,7 @@ Compares base vs fine-tuned model on holdout queries. Uses LLM-as-judge with ran
 
 ## MCP Server
 
-Nova_ exposes its intelligence as MCP tools for external agents (Claude Code, Cursor, etc.):
+Nova exposes its intelligence as MCP tools for external agents (Claude Code, Cursor, etc.):
 
 ```bash
 python scripts/mcp_server_runner.py                     # Runs over stdio

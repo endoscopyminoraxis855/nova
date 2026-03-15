@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class MCPTool(BaseTool):
-    """Wraps a single MCP tool as a Nova_ BaseTool."""
+    """Wraps a single MCP tool as a Nova BaseTool."""
 
     def __init__(self, client, tool_spec: dict):
         self.name = f"mcp_{tool_spec.get('name', 'unknown')}"
