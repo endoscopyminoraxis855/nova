@@ -240,7 +240,29 @@ docker exec nova-app sh -c "python -m pytest tests/ -v"
 | Disk | 50GB | 100GB |
 | GPU | RTX 3090 | RTX 4090 / A5000 |
 
-**No GPU?** Use cloud LLM providers instead — set `LLM_PROVIDER=openai` (or `anthropic`/`google`) in `.env`. Your data (memory, KG, lessons, training pairs) stays fully local — only inference goes to the cloud.
+### Low VRAM / No GPU Options
+
+Nova's LLM layer is provider-agnostic — you don't need a 3090.
+
+| Setup | VRAM | How |
+|-------|------|-----|
+| **Full local (default)** | 20GB+ | `qwen3.5:27b` via Ollama |
+| **Quantized local** | 16GB | `qwen3.5:27b-q4_K_M` — set `LLM_MODEL=qwen3.5:27b-q4_K_M` in `.env` |
+| **Smaller model** | 8GB | `qwen3.5:9b` — set `LLM_MODEL=qwen3.5:9b` in `.env` |
+| **Tiny model** | 4GB | `qwen3.5:4b` — set `LLM_MODEL=qwen3.5:4b` in `.env` |
+| **Cloud inference** | 0GB | Set `LLM_PROVIDER=openai` (or `anthropic`/`google`) + API key |
+| **Mixed** | 0GB | Cloud for inference, local for everything else |
+
+All options keep your data fully local — memory, knowledge graph, lessons, training pairs, and conversations never leave your machine. Cloud mode only sends the current query + context to the LLM provider.
+
+```bash
+# Cloud mode — no GPU needed
+docker compose -f docker-compose.cloud.yml up -d
+
+# Quantized — fits in 16GB VRAM
+# Just change LLM_MODEL in .env, then:
+docker compose up -d
+```
 
 ## Configuration
 
