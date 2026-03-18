@@ -1,8 +1,14 @@
-"""Browser automation tool — Playwright-based web interaction."""
+"""Browser automation tool — Playwright-based web interaction with persistent sessions.
+
+Sessions persist across tool calls so Nova can log in, navigate, click, and
+read across multiple steps — just like a human using a browser.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 
 from app.config import config
 from app.tools.base import BaseTool, ToolResult
@@ -11,26 +17,52 @@ from app.tools.http_fetch import _is_safe_url
 logger = logging.getLogger(__name__)
 
 _MAX_CONTENT = 8000
+_SESSION_TIMEOUT = 600  # 10 min idle timeout
 
 
 class BrowserTool(BaseTool):
     name = "browser"
     description = (
-        "Interact with web pages: navigate, click, type, extract content, fill forms. "
-        "Actions: navigate, click, type, get_text, get_links, fill_form, evaluate_js."
+        "Control a persistent web browser. Sessions survive across calls so you can "
+        "log in, navigate multi-step workflows, and interact with web apps. "
+        "Actions: navigate (go to URL), click (click element), type (type into field), "
+        "get_text (read page/element text), get_links (list links), fill_form (fill multiple fields), "
+        "screenshot (capture current page), back (go back), wait (wait for element), "
+        "close_session (end browser session)."
     )
-    parameters = "action: str, url: str, selector: str, text: str, form_data: dict, script: str"
+    parameters = (
+        "action: str (navigate|click|type|get_text|get_links|fill_form|screenshot|back|wait|close_session), "
+        "url: str (only needed for navigate or first visit), "
+        "selector: str (CSS selector for click/type/get_text/wait), "
+        "text: str (text to type), form_data: dict (selector:value pairs), "
+        "script: str (JS for evaluate_js)"
+    )
 
-    _playwright = None     # Shared Playwright context manager
-    _browser = None        # Shared Chromium browser instance
+    _playwright = None
+    _browser = None
+    _context = None       # Persistent browser context (holds cookies/state)
+    _page = None          # Persistent page (holds navigation state)
+    _last_used = 0.0      # Timestamp for session timeout
 
-    async def _get_browser(self):
-        """Return the shared Chromium browser, launching it if needed."""
-        if BrowserTool._browser and BrowserTool._browser.is_connected():
-            return BrowserTool._browser
+    async def _get_page(self):
+        """Return the persistent page, creating browser/context/page if needed."""
+        now = time.time()
 
-        # Clean up stale references
-        await self._close_browser()
+        # Session timeout — close stale sessions
+        if (BrowserTool._page and BrowserTool._last_used
+                and now - BrowserTool._last_used > _SESSION_TIMEOUT):
+            logger.info("[Browser] Session timed out after %ds idle", _SESSION_TIMEOUT)
+            await self._close_session()
+
+        BrowserTool._last_used = now
+
+        # Reuse existing page if browser is still connected
+        if (BrowserTool._page and BrowserTool._browser
+                and BrowserTool._browser.is_connected()):
+            return BrowserTool._page
+
+        # Clean up anything stale
+        await self._close_session()
 
         from playwright.async_api import async_playwright
         BrowserTool._playwright = await async_playwright().start()
@@ -38,12 +70,33 @@ class BrowserTool(BaseTool):
             headless=True,
             args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
         )
-        logger.debug("Launched shared Chromium browser instance")
-        return BrowserTool._browser
+        BrowserTool._context = await BrowserTool._browser.new_context(
+            viewport={"width": 1280, "height": 720},
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            ),
+        )
+        BrowserTool._context.set_default_timeout(config.BROWSER_TIMEOUT * 1000)
+        BrowserTool._page = await BrowserTool._context.new_page()
+        logger.info("[Browser] New session started")
+        return BrowserTool._page
 
     @classmethod
-    async def _close_browser(cls):
-        """Close the shared browser and Playwright instance."""
+    async def _close_session(cls):
+        """Close the persistent session (context + browser)."""
+        if cls._page:
+            try:
+                await cls._page.close()
+            except Exception:
+                pass
+            cls._page = None
+        if cls._context:
+            try:
+                await cls._context.close()
+            except Exception:
+                pass
+            cls._context = None
         if cls._browser:
             try:
                 await cls._browser.close()
@@ -56,6 +109,9 @@ class BrowserTool(BaseTool):
             except Exception:
                 pass
             cls._playwright = None
+
+    # Keep the old name for shutdown hooks
+    _close_browser = _close_session
 
     async def execute(
         self,
@@ -72,7 +128,10 @@ class BrowserTool(BaseTool):
             return ToolResult(
                 output="",
                 success=False,
-                error="No action specified. Use: navigate, click, type, get_text, get_links, fill_form, evaluate_js.",
+                error=(
+                    "No action specified. Use: navigate, click, type, get_text, "
+                    "get_links, fill_form, screenshot, back, wait, close_session."
+                ),
             )
 
         try:
@@ -86,47 +145,52 @@ class BrowserTool(BaseTool):
 
         action = action.lower()
 
+        # close_session doesn't need a page
+        if action == "close_session":
+            await self._close_session()
+            return ToolResult(output="Browser session closed.", success=True)
+
         try:
-            browser = await self._get_browser()
-            context = await browser.new_context(
-                viewport={"width": 1280, "height": 720},
-                user_agent="Nova/1.0",
-            )
-            try:
-                context.set_default_timeout(config.BROWSER_TIMEOUT * 1000)
-                await context.clear_cookies()
-                page = await context.new_page()
+            page = await self._get_page()
 
-                if action == "navigate":
-                    result = await self._navigate(page, url)
-                elif action == "click":
-                    result = await self._click(page, url, selector)
-                elif action == "type":
-                    result = await self._type(page, url, selector, text)
-                elif action == "get_text":
-                    result = await self._get_text(page, url, selector)
-                elif action == "get_links":
-                    result = await self._get_links(page, url)
-                elif action == "fill_form":
-                    result = await self._fill_form(page, url, form_data)
-                elif action == "evaluate_js":
-                    result = await self._evaluate_js(page, url, script)
-                else:
-                    result = ToolResult(
-                        output="",
-                        success=False,
-                        error=f"Unknown action '{action}'. Use: navigate, click, type, get_text, get_links, fill_form, evaluate_js.",
-                    )
-            finally:
-                await context.close()
-
-            return result
+            if action == "navigate":
+                return await self._navigate(page, url)
+            elif action == "click":
+                return await self._click(page, url, selector)
+            elif action == "type":
+                return await self._type(page, url, selector, text)
+            elif action == "get_text":
+                return await self._get_text(page, url, selector)
+            elif action == "get_links":
+                return await self._get_links(page, url)
+            elif action == "fill_form":
+                return await self._fill_form(page, url, form_data)
+            elif action == "evaluate_js":
+                return await self._evaluate_js(page, url, script)
+            elif action == "screenshot":
+                return await self._screenshot(page)
+            elif action == "back":
+                return await self._back(page)
+            elif action == "wait":
+                return await self._wait(page, selector)
+            else:
+                return ToolResult(
+                    output="",
+                    success=False,
+                    error=f"Unknown action '{action}'.",
+                )
 
         except Exception as e:
-            # If the browser crashed, clean up so the next call relaunches
-            await self._close_browser()
-            logger.warning("Browser tool error: %s", e)
-            return ToolResult(output="", success=False, error="Browser operation failed")
+            await self._close_session()
+            logger.warning("[Browser] Action '%s' failed: %s", action, e)
+            return ToolResult(
+                output="", success=False,
+                error=f"Browser action failed: {e}",
+            )
+
+    # ------------------------------------------------------------------
+    # URL safety
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _check_url(url: str) -> ToolResult | None:
@@ -134,8 +198,35 @@ class BrowserTool(BaseTool):
         if not url:
             return ToolResult(output="", success=False, error="No URL provided")
         if not _is_safe_url(url):
-            return ToolResult(output="", success=False, error="URL blocked: internal/private addresses not allowed")
+            return ToolResult(
+                output="", success=False,
+                error="URL blocked: internal/private addresses not allowed",
+            )
         return None
+
+    async def _maybe_navigate(self, page, url: str) -> ToolResult | None:
+        """Navigate to url if provided; skip if already on a page."""
+        if not url:
+            # No URL = use current page
+            current = page.url
+            if not current or current == "about:blank":
+                return ToolResult(
+                    output="", success=False,
+                    error="No URL provided and no page loaded. Use navigate first.",
+                )
+            return None
+        if err := self._check_url(url):
+            return err
+        await page.goto(url, wait_until="domcontentloaded")
+        return None
+
+    def _page_summary(self, page) -> str:
+        """One-line summary of current page state."""
+        return f"[{page.url}]"
+
+    # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
 
     async def _navigate(self, page, url: str) -> ToolResult:
         if err := self._check_url(url):
@@ -153,32 +244,48 @@ class BrowserTool(BaseTool):
 
     async def _click(self, page, url: str, selector: str) -> ToolResult:
         if not selector:
-            return ToolResult(output="", success=False, error="Both 'url' and 'selector' required")
-        if err := self._check_url(url):
+            return ToolResult(
+                output="", success=False,
+                error="'selector' is required for click.",
+            )
+        if err := await self._maybe_navigate(page, url):
             return err
-        await page.goto(url, wait_until="domcontentloaded")
         await page.click(selector)
         await page.wait_for_load_state("domcontentloaded")
         title = await page.title()
-        return ToolResult(output=f"Clicked '{selector}'. New page: {title} ({page.url})", success=True)
+        # Return some page text so the LLM knows what happened
+        text = await page.evaluate("() => document.body.innerText")
+        if len(text) > 3000:
+            text = text[:3000] + "\n[... truncated]"
+        return ToolResult(
+            output=f"Clicked '{selector}'. Page: {title} ({page.url})\n\n{text}",
+            success=True,
+        )
 
     async def _type(self, page, url: str, selector: str, text: str) -> ToolResult:
         if not selector or not text:
-            return ToolResult(output="", success=False, error="'url', 'selector', and 'text' all required")
-        if err := self._check_url(url):
+            return ToolResult(
+                output="", success=False,
+                error="'selector' and 'text' are required for type.",
+            )
+        if err := await self._maybe_navigate(page, url):
             return err
-        await page.goto(url, wait_until="domcontentloaded")
         await page.fill(selector, text)
-        return ToolResult(output=f"Typed '{text[:50]}' into '{selector}'", success=True)
+        return ToolResult(
+            output=f"Typed '{text[:80]}' into '{selector}' {self._page_summary(page)}",
+            success=True,
+        )
 
     async def _get_text(self, page, url: str, selector: str = "") -> ToolResult:
-        if err := self._check_url(url):
+        if err := await self._maybe_navigate(page, url):
             return err
-        await page.goto(url, wait_until="domcontentloaded")
         if selector:
             element = await page.query_selector(selector)
             if not element:
-                return ToolResult(output="", success=False, error=f"Selector '{selector}' not found")
+                return ToolResult(
+                    output="", success=False,
+                    error=f"Selector '{selector}' not found on {page.url}",
+                )
             text = await element.inner_text()
         else:
             text = await page.evaluate("() => document.body.innerText")
@@ -190,9 +297,8 @@ class BrowserTool(BaseTool):
         return ToolResult(output=text, success=True)
 
     async def _get_links(self, page, url: str) -> ToolResult:
-        if err := self._check_url(url):
+        if err := await self._maybe_navigate(page, url):
             return err
-        await page.goto(url, wait_until="domcontentloaded")
         links = await page.evaluate("""
             () => Array.from(document.querySelectorAll('a[href]'))
                 .slice(0, 50)
@@ -210,51 +316,32 @@ class BrowserTool(BaseTool):
 
     async def _fill_form(self, page, url: str, form_data: dict | None) -> ToolResult:
         if not form_data:
-            return ToolResult(output="", success=False, error="'url' and 'form_data' required (dict of selector: value)")
-        if err := self._check_url(url):
+            return ToolResult(
+                output="", success=False,
+                error="'form_data' required (dict of selector: value).",
+            )
+        if err := await self._maybe_navigate(page, url):
             return err
-        await page.goto(url, wait_until="domcontentloaded")
         filled = []
-        for selector, value in form_data.items():
-            await page.fill(selector, str(value))
-            filled.append(f"  {selector} = {str(value)[:50]}")
-        return ToolResult(output=f"Filled {len(filled)} fields:\n" + "\n".join(filled), success=True)
+        for sel, value in form_data.items():
+            await page.fill(sel, str(value))
+            filled.append(f"  {sel} = {str(value)[:50]}")
+        return ToolResult(
+            output=f"Filled {len(filled)} field(s) {self._page_summary(page)}:\n"
+                   + "\n".join(filled),
+            success=True,
+        )
 
     async def _evaluate_js(self, page, url: str, script: str) -> ToolResult:
         if not script:
-            return ToolResult(output="", success=False, error="'url' and 'script' required")
-        if err := self._check_url(url):
-            return err
+            return ToolResult(
+                output="", success=False,
+                error="'script' is required for evaluate_js.",
+            )
 
-        # Strict allowlist — only safe DOM read operations allowed
+        # Check blocked patterns BEFORE navigating (fail-fast)
         import re as _re
-        _ALLOWED_APIS = [
-            r"document\.querySelector(?:All)?",
-            r"document\.getElementById",
-            r"document\.getElementsBy(?:ClassName|TagName|Name)",
-            r"\.textContent",
-            r"\.innerText",
-            r"\.innerHTML",
-            r"\.getAttribute\s*\(",
-            r"\.style\.",
-            r"\.classList",
-            r"\.children",
-            r"\.parentElement",
-            r"\.value",
-            r"Array\.from",
-            r"\.map\s*\(",
-            r"\.filter\s*\(",
-            r"\.slice\s*\(",
-            r"\.join\s*\(",
-            r"\.length",
-            r"\.trim\s*\(",
-            r"\.substring\s*\(",
-            r"JSON\.stringify",
-            r"\(\)\s*=>",
-            r"return\b",
-        ]
 
-        # Block everything that's not in the allowlist by checking for dangerous patterns
         _BLOCKED_PATTERNS = [
             (r"\bfetch\s*\(", "fetch()"),
             (r"\bXMLHttpRequest\b", "XMLHttpRequest"),
@@ -284,11 +371,67 @@ class BrowserTool(BaseTool):
         ]
         for pattern, label in _BLOCKED_PATTERNS:
             if _re.search(pattern, script):
-                return ToolResult(output="", success=False, error=f"Script contains blocked pattern: {label}")
+                return ToolResult(
+                    output="", success=False,
+                    error=f"Script contains blocked pattern: {label}",
+                )
 
-        await page.goto(url, wait_until="domcontentloaded")
+        if err := await self._maybe_navigate(page, url):
+            return err
+
         result = await page.evaluate(script)
         output = str(result)
         if len(output) > _MAX_CONTENT:
             output = output[:_MAX_CONTENT] + "\n[... truncated]"
         return ToolResult(output=output, success=True)
+
+    async def _screenshot(self, page) -> ToolResult:
+        """Capture current page as PNG screenshot."""
+        from pathlib import Path
+        from datetime import datetime, timezone
+
+        screenshot_dir = Path("/data/screenshots")
+        try:
+            screenshot_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        path = screenshot_dir / f"browser_{ts}.png"
+        await page.screenshot(path=str(path), full_page=False)
+        title = await page.title()
+        return ToolResult(
+            output=f"Screenshot saved: {path}\nPage: {title} ({page.url})",
+            success=True,
+        )
+
+    async def _back(self, page) -> ToolResult:
+        """Go back to previous page."""
+        await page.go_back(wait_until="domcontentloaded")
+        title = await page.title()
+        text = await page.evaluate("() => document.body.innerText")
+        if len(text) > 3000:
+            text = text[:3000] + "\n[... truncated]"
+        return ToolResult(
+            output=f"Went back. Page: {title} ({page.url})\n\n{text}",
+            success=True,
+        )
+
+    async def _wait(self, page, selector: str) -> ToolResult:
+        """Wait for an element to appear on the current page."""
+        if not selector:
+            return ToolResult(
+                output="", success=False,
+                error="'selector' is required for wait.",
+            )
+        try:
+            await page.wait_for_selector(selector, timeout=10000)
+        except Exception:
+            return ToolResult(
+                output="", success=False,
+                error=f"Timed out waiting for '{selector}' (10s).",
+            )
+        return ToolResult(
+            output=f"Element '{selector}' found on {page.url}",
+            success=True,
+        )
