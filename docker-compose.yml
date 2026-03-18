@@ -57,6 +57,7 @@ services:
       TRAINING_DATA_PATH: /data/training_data.jsonl
       MCP_CONFIG_DIR: /data/mcp
       ENABLE_SHELL_EXEC: "true"
+      XDG_CACHE_HOME: /tmp/.cache
       # DISPLAY: ${DISPLAY:-:0}  # Uncomment for desktop automation
     volumes:
       - nova_data:/data
@@ -66,6 +67,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+      - /home/nova/.cache
     security_opt:
       - no-new-privileges:true
     cap_drop:

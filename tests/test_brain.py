@@ -60,7 +60,7 @@ class TestConversationStore:
         dicts = store.get_history_as_dicts(conv_id)
         assert len(dicts) == 3
         assert dicts[0] == {"role": "user", "content": "What's 2+2?"}
-        assert dicts[1]["role"] == "system"  # Tool results become system messages
+        assert dicts[1]["role"] == "assistant"  # Tool results as assistant self-attribution
         assert "calculator" in dicts[1]["content"]
         assert dicts[2] == {"role": "assistant", "content": "The answer is 4."}
 
@@ -684,3 +684,91 @@ class TestAnswerSanitizer:
         assert "\n\n\n" not in result
         assert "Line 1." in result
         assert "Line 2." in result
+
+
+# ===========================================================================
+# Failure-Context Lesson Detection (prompt.py)
+# ===========================================================================
+
+class TestFailureContextLesson:
+    def test_detects_failure_context(self):
+        from app.core.prompt import _is_failure_context_lesson
+        # 2+ failure-context phrases → annotated
+        assert _is_failure_context_lesson("When tools fail, report the error and limitation")
+        assert _is_failure_context_lesson("timeout or truncated results should be reported")
+        assert _is_failure_context_lesson("If unable to complete, report the error")
+
+    def test_ignores_non_failure_context(self):
+        from app.core.prompt import _is_failure_context_lesson
+        # 0-1 failure-context phrases → NOT annotated
+        assert not _is_failure_context_lesson("verify selectors exist before clicking")
+        assert not _is_failure_context_lesson("browser automation tools are required for forms")
+        assert not _is_failure_context_lesson("Python error handling best practices")  # only 1 match
+        assert not _is_failure_context_lesson("")
+
+    def test_format_lessons_excludes_failure_lessons(self):
+        lessons = [
+            {"topic": "Good", "lesson_text": "verify fields before clicking", "confidence": 0.9,
+             "wrong_answer": "", "correct_answer": ""},
+            {"topic": "Cautionary", "lesson_text": "When tools fail, report error and limitation",
+             "confidence": 0.8, "wrong_answer": "", "correct_answer": ""},
+        ]
+        result = format_lessons_for_prompt(lessons)
+        # Good lesson is included
+        assert "verify fields" in result
+        # Failure-context lesson is excluded entirely
+        assert "report error and limitation" not in result
+
+    def test_format_lessons_excludes_structured_fallback_failure(self):
+        lessons = [
+            {"topic": "Handling", "lesson_text": "",
+             "wrong_answer": "ignore the error and timeout", "correct_answer": "report the failure and limitation",
+             "confidence": 0.8},
+        ]
+        result = format_lessons_for_prompt(lessons)
+        # Failure-context lesson excluded → empty result
+        assert result == ""
+
+    def test_format_lessons_all_failure_returns_empty(self):
+        lessons = [
+            {"topic": "Fail1", "lesson_text": "When tools fail, report the error and limitation",
+             "confidence": 0.8, "wrong_answer": "", "correct_answer": ""},
+            {"topic": "Fail2", "lesson_text": "timeout or truncated results should be reported as unable",
+             "confidence": 0.9, "wrong_answer": "", "correct_answer": ""},
+        ]
+        result = format_lessons_for_prompt(lessons)
+        assert result == ""
+
+
+# ===========================================================================
+# Round Success Detection (brain.py)
+# ===========================================================================
+
+class TestRoundSuccessDetection:
+    def test_all_succeeded(self):
+        from app.core.brain import _round_all_succeeded
+        assert _round_all_succeeded([("browser", "Page loaded successfully")])
+        assert _round_all_succeeded([("browser", "Page loaded"), ("calc", "Result: 42")])
+        assert _round_all_succeeded([])
+
+    def test_detects_failure(self):
+        from app.core.brain import _round_all_succeeded
+        assert not _round_all_succeeded([("browser", "Error: selector not found")])
+        assert not _round_all_succeeded([("browser", "Page loaded"), ("calc", "Failed to compute")])
+        assert not _round_all_succeeded([("browser", "Request timed out")])
+
+    def test_mixed_rounds_tracked_cumulatively(self):
+        """Simulates the partial-failure scenario: early rounds succeed, later round fails.
+        The _any_round_succeeded flag should preserve knowledge of prior successes."""
+        from app.core.brain import _round_all_succeeded
+        # Round 1: success
+        r1 = [("browser", "Page loaded successfully")]
+        assert _round_all_succeeded(r1)
+        # Round 2: success
+        r2 = [("browser", "Filled 7 field(s)")]
+        assert _round_all_succeeded(r2)
+        # Round 3: failure
+        r3 = [("browser", "[Tool error: browser] Selector not found")]
+        assert not _round_all_succeeded(r3)
+        # The cumulative tracking (_any_round_succeeded) is handled in _run_generation_loop,
+        # but we verify the building blocks work correctly here.

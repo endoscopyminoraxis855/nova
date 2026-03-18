@@ -71,7 +71,7 @@ class TestQualityAssessment:
             max_tool_rounds=5,
         )
         assert score < 1.0
-        assert "tool rounds" in reason.lower()
+        assert "rounds" in reason.lower()
 
     def test_tool_failures(self):
         tools = [

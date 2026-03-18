@@ -796,6 +796,132 @@ class TestBrowserJsSafety:
 
 
 # ---------------------------------------------------------------------------
+# 14b. Browser interactive elements
+# ---------------------------------------------------------------------------
+
+
+class TestBrowserInteractiveElements:
+    """Verify interactive element formatting and extraction."""
+
+    def test_format_interactive_elements_full(self):
+        from app.tools.browser import BrowserTool
+
+        data = {
+            "buttons": [
+                {"label": "Sign in", "selector": "button#sign-in", "type": "button"},
+                {"label": "Submit", "selector": "input[type=\"submit\"]", "type": "submit"},
+            ],
+            "inputs": [
+                {"label": "Email", "selector": "input#email", "type": "email", "value": "user@test.com"},
+                {"label": "Password", "selector": "input[name=\"password\"]", "type": "password", "value": ""},
+            ],
+            "radioGroups": [
+                {"label": "Size", "selector": "input[name=\"size\"]", "type": "radio",
+                 "options": "Small, Medium, Large [selected]", "selected": "large"},
+            ],
+            "checkboxGroups": [
+                {"label": "Bacon", "selector": "input[name=\"topping\"]", "type": "checkbox",
+                 "options": "Bacon [checked], Cheese, Onion", "checked": "bacon"},
+            ],
+            "links": [
+                {"label": "Home", "selector": "a.nav-home", "href": "https://example.com"},
+                {"label": "About", "selector": "a[href=\"/about\"]", "href": "https://example.com/about"},
+            ],
+            "selects": [
+                {"label": "Country", "selector": "select#country", "options": "US, UK, CA", "selected": "US"},
+            ],
+        }
+        result = BrowserTool._format_interactive_elements(data)
+        assert "Buttons:" in result
+        assert '"Sign in"' in result
+        assert "button#sign-in" in result
+        assert "Inputs:" in result
+        assert '"Email"' in result
+        assert "input#email" in result
+        assert '= "user@test.com"' in result
+        assert "(empty)" in result  # Password has no value
+        assert "Radio groups:" in result
+        assert "selected" in result
+        assert "Checkbox groups:" in result
+        assert "checked" in result
+        assert "Links:" in result
+        assert '"Home"' in result
+        assert "Selects:" in result
+        assert '"Country"' in result
+
+    def test_format_interactive_elements_empty(self):
+        from app.tools.browser import BrowserTool
+
+        result = BrowserTool._format_interactive_elements({})
+        assert "no interactive elements" in result
+
+    def test_format_interactive_elements_partial(self):
+        from app.tools.browser import BrowserTool
+
+        data = {
+            "buttons": [{"label": "Go", "selector": "button.go", "type": ""}],
+            "inputs": [],
+            "links": [],
+            "selects": [],
+        }
+        result = BrowserTool._format_interactive_elements(data)
+        assert "Buttons:" in result
+        assert '"Go"' in result
+        assert "Inputs:" not in result
+        assert "Links:" not in result
+
+    def test_get_interactive_elements_action_in_dispatch(self):
+        """Verify get_interactive_elements is a valid action string."""
+        from app.tools.browser import BrowserTool
+        assert "get_interactive_elements" in BrowserTool.parameters
+
+
+# ---------------------------------------------------------------------------
+# 14c. Reflexion browser selector scoring
+# ---------------------------------------------------------------------------
+
+
+class TestReflexionBrowserScoring:
+    """Verify reflexion scoring treats browser selector misses softly."""
+
+    def test_browser_selector_miss_mild_penalty(self):
+        from app.core.reflexion import assess_quality
+
+        tool_results = [
+            {"output": "", "error": "Selector 'button.fake' not found. Available elements:\n..."},
+        ]
+        score, reason = assess_quality("I clicked the button", tool_results, 5)
+        # Browser selector miss = -0.05, not -0.15
+        assert score >= 0.9, f"Score too low for browser selector miss: {score}"
+        assert "selector miss" in reason.lower()
+
+    def test_hard_tool_failure_still_penalized(self):
+        from app.core.reflexion import assess_quality
+
+        tool_results = [
+            {"output": "Connection failed: timeout", "error": ""},
+        ]
+        score, reason = assess_quality("Here is the result", tool_results, 5)
+        assert score <= 0.85, f"Hard failure not penalized enough: {score}"
+
+    def test_all_tools_clean_ignores_selector_miss(self):
+        from app.core.reflexion import _all_tools_clean
+
+        tool_results = [
+            {"output": "", "error": "Selector '#missing' not found"},
+        ]
+        assert _all_tools_clean(tool_results), "Browser selector miss should not count as dirty"
+
+    def test_all_tools_clean_catches_real_failure(self):
+        from app.core.reflexion import _all_tools_clean
+
+        tool_results = [
+            {"output": "HTTP request failed with error 500"},
+        ]
+        assert not _all_tools_clean(tool_results), "Real failure should be caught"
+
+
+# ---------------------------------------------------------------------------
 # 15. Email rate limiting
 # ---------------------------------------------------------------------------
 

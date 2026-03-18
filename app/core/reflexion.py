@@ -93,19 +93,42 @@ def assess_quality(
         reasons.append("Contains uncertainty phrase (honest)")
 
     # Tool exhaustion — used all rounds without a clean answer
+    _failure_markers = ("failed", "timed out", "error", "not available", "not found")
     if tool_results and len(tool_results) >= max_tool_rounds:
-        score -= 0.3
-        reasons.append(f"Exhausted all {max_tool_rounds} tool rounds")
+        # Milder penalty if some tools succeeded
+        tool_successes = sum(
+            1 for tr in tool_results
+            if not any(f in str(tr.get("output", "")).lower()
+                       for f in _failure_markers)
+        )
+        if tool_successes > 0:
+            score -= 0.1
+            reasons.append(f"Exhausted {max_tool_rounds} rounds but {tool_successes} succeeded")
+        else:
+            score -= 0.3
+            reasons.append(f"Exhausted all {max_tool_rounds} tool rounds with zero successes")
 
-    # Tool failures in results
-    tool_failures = sum(
-        1 for tr in tool_results
-        if any(f in str(tr.get("output", "")).lower()
-               for f in ("failed", "timed out", "error", "not available"))
-    )
-    if tool_failures:
-        score -= 0.15 * tool_failures
-        reasons.append(f"{tool_failures} tool(s) failed")
+    # Tool failures in results — separate browser selector misses from hard failures
+    _browser_selector_hints = ("selector", "not found", "timed out waiting")
+    browser_selector_misses = 0
+    hard_tool_failures = 0
+    for tr in tool_results:
+        output_lower = str(tr.get("output", "")).lower()
+        error_lower = str(tr.get("error", "")).lower()
+        combined = output_lower + " " + error_lower
+        is_failure = any(f in combined for f in _failure_markers)
+        if not is_failure:
+            continue
+        if any(m in combined for m in _browser_selector_hints):
+            browser_selector_misses += 1
+        else:
+            hard_tool_failures += 1
+    if browser_selector_misses:
+        score -= 0.05 * browser_selector_misses
+        reasons.append(f"{browser_selector_misses} browser selector miss(es)")
+    if hard_tool_failures:
+        score -= 0.15 * hard_tool_failures
+        reasons.append(f"{hard_tool_failures} tool(s) failed")
 
     score = max(0.0, min(1.0, score))
     reason = "; ".join(reasons) if reasons else ""
@@ -131,16 +154,28 @@ Check:
 Return JSON: {{"score": 0.0-1.0, "critique": "one sentence summary"}}"""
 
 
-_TOOL_FAILURE_MARKERS = ("failed", "timed out", "error", "not available")
+_TOOL_FAILURE_MARKERS = ("failed", "timed out", "error", "not available", "not found")
+
+
+_BROWSER_SELECTOR_HINTS = ("selector", "not found", "timed out waiting")
 
 
 def _all_tools_clean(tool_results: list[dict]) -> bool:
-    """Return True if every tool result is clean (no failure markers)."""
+    """Return True if every tool result is clean (no hard failure markers).
+
+    Browser selector misses (output contains 'selector' or 'timed out waiting')
+    are retriable, not hard failures — they don't trigger LLM critique.
+    """
     for tr in tool_results:
         output = str(tr.get("output", "")).lower()
-        if any(marker in output for marker in _TOOL_FAILURE_MARKERS):
-            return False
+        error = str(tr.get("error", "")).lower()
+        combined = output + " " + error
         if output.startswith("[tool"):
+            return False
+        if any(marker in combined for marker in _TOOL_FAILURE_MARKERS):
+            # Browser selector misses are soft — skip them
+            if any(hint in combined for hint in _BROWSER_SELECTOR_HINTS):
+                continue
             return False
     return True
 

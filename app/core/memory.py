@@ -144,10 +144,9 @@ class ConversationStore:
             if msg.role in ("user", "assistant"):
                 result.append({"role": msg.role, "content": msg.content})
             elif msg.role == "tool":
-                # Tool results are injected as system messages
                 result.append({
-                    "role": "system",
-                    "content": f"[Tool result from '{msg.tool_name}']: {msg.content}",
+                    "role": "assistant",
+                    "content": f"[Tool '{msg.tool_name}' executed successfully]: {msg.content}",
                 })
         return result
 

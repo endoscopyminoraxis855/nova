@@ -19,22 +19,160 @@ logger = logging.getLogger(__name__)
 _MAX_CONTENT = 8000
 _SESSION_TIMEOUT = 600  # 10 min idle timeout
 
+# ---------------------------------------------------------------------------
+# JS snippet — extract visible interactive elements with reliable selectors
+# ---------------------------------------------------------------------------
+
+_INTERACTIVE_ELEMENTS_JS = """
+() => {
+    function isVisible(el) {
+        if (!el.offsetParent && el.tagName !== 'BODY') return false;
+        const s = getComputedStyle(el);
+        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
+    }
+    function getSelector(el) {
+        if (el.id) return '#' + CSS.escape(el.id);
+        if (el.name) return el.tagName.toLowerCase() + '[name="' + el.name + '"]';
+        const classes = Array.from(el.classList).filter(c => c.length > 0 && c.length < 40);
+        if (classes.length) {
+            const sel = el.tagName.toLowerCase() + '.' + classes.map(c => CSS.escape(c)).join('.');
+            if (document.querySelectorAll(sel).length === 1) return sel;
+        }
+        const text = (el.innerText || '').trim().substring(0, 30);
+        if (text && el.tagName !== 'INPUT' && el.tagName !== 'SELECT') {
+            const sel = el.tagName.toLowerCase() + ':has-text("' + text.replace(/"/g, '\\\\"') + '")';
+            return sel;
+        }
+        const parent = el.parentElement;
+        if (parent) {
+            const siblings = Array.from(parent.children).filter(c => c.tagName === el.tagName);
+            if (siblings.length > 1) {
+                const idx = siblings.indexOf(el) + 1;
+                return el.tagName.toLowerCase() + ':nth-of-type(' + idx + ')';
+            }
+        }
+        return el.tagName.toLowerCase();
+    }
+    function getLabel(el) {
+        if (el.labels && el.labels.length) return el.labels[0].innerText.trim().substring(0, 40);
+        const aria = el.getAttribute('aria-label');
+        if (aria) return aria.substring(0, 40);
+        const ph = el.getAttribute('placeholder');
+        if (ph) return ph.substring(0, 40);
+        const title = el.getAttribute('title');
+        if (title) return title.substring(0, 40);
+        const text = (el.innerText || el.value || '').trim().substring(0, 40);
+        return text;
+    }
+    const result = {buttons: [], inputs: [], links: [], selects: [], radioGroups: [], checkboxGroups: []};
+
+    // Buttons
+    document.querySelectorAll('button, input[type="button"], input[type="submit"], input[type="reset"], [role="button"]').forEach(el => {
+        if (!isVisible(el)) return;
+        result.buttons.push({label: getLabel(el), selector: getSelector(el), type: el.type || ''});
+    });
+
+    // Text-like inputs + textareas (NOT radio/checkbox — those go in groups)
+    document.querySelectorAll('input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea').forEach(el => {
+        if (!isVisible(el)) return;
+        const val = (el.value || '').substring(0, 40);
+        result.inputs.push({label: getLabel(el), selector: getSelector(el), type: el.type || 'text', value: val});
+    });
+
+    // Radio groups — group by name, show options + which is selected
+    const radioNames = new Set();
+    document.querySelectorAll('input[type="radio"]').forEach(el => {
+        if (el.name) radioNames.add(el.name);
+    });
+    radioNames.forEach(name => {
+        const radios = Array.from(document.querySelectorAll('input[type="radio"][name="' + name + '"]'));
+        const options = radios.map(r => {
+            const lbl = getLabel(r) || r.value;
+            return r.checked ? lbl + ' [selected]' : lbl;
+        });
+        const selected = radios.find(r => r.checked);
+        result.radioGroups.push({
+            label: getLabel(radios[0]) || name,
+            selector: 'input[name="' + name + '"]',
+            type: 'radio',
+            options: options.join(', '),
+            selected: selected ? (selected.value || '') : ''
+        });
+    });
+
+    // Checkbox groups — group by name, show options + which are checked
+    const checkNames = new Set();
+    document.querySelectorAll('input[type="checkbox"]').forEach(el => {
+        if (el.name) checkNames.add(el.name);
+    });
+    checkNames.forEach(name => {
+        const checks = Array.from(document.querySelectorAll('input[type="checkbox"][name="' + name + '"]'));
+        const options = checks.map(c => {
+            const lbl = getLabel(c) || c.value;
+            return c.checked ? lbl + ' [checked]' : lbl;
+        });
+        const checked = checks.filter(c => c.checked).map(c => c.value);
+        result.checkboxGroups.push({
+            label: getLabel(checks[0]) || name,
+            selector: 'input[name="' + name + '"]',
+            type: 'checkbox',
+            options: options.join(', '),
+            checked: checked.join(', ')
+        });
+    });
+
+    // Selects
+    document.querySelectorAll('select').forEach(el => {
+        if (!isVisible(el)) return;
+        const opts = Array.from(el.options).slice(0, 8).map(o => o.text.trim()).join(', ');
+        const selected = el.options[el.selectedIndex] ? el.options[el.selectedIndex].text.trim() : '';
+        result.selects.push({label: getLabel(el), selector: getSelector(el), options: opts, selected: selected});
+    });
+
+    // Links
+    document.querySelectorAll('a[href]').forEach(el => {
+        if (!isVisible(el)) return;
+        const text = (el.innerText || '').trim().substring(0, 60);
+        if (!text) return;
+        result.links.push({label: text, selector: getSelector(el), href: el.href});
+    });
+
+    // Cap each category
+    result.buttons = result.buttons.slice(0, 20);
+    result.inputs = result.inputs.slice(0, 20);
+    result.radioGroups = result.radioGroups.slice(0, 10);
+    result.checkboxGroups = result.checkboxGroups.slice(0, 10);
+    result.selects = result.selects.slice(0, 10);
+    result.links = result.links.slice(0, 30);
+    return result;
+}
+"""
+
 
 class BrowserTool(BaseTool):
     name = "browser"
     description = (
         "Control a persistent web browser. Sessions survive across calls so you can "
         "log in, navigate multi-step workflows, and interact with web apps. "
-        "Actions: navigate (go to URL), click (click element), type (type into field), "
+        "Actions: navigate (go to URL — returns page text AND interactive elements with CSS selectors), "
+        "click (click element by CSS selector), type (type into field), "
         "press_key (press Enter/Tab/etc.), get_text (read page/element text), get_links (list links), "
-        "fill_form (fill multiple fields), screenshot (capture current page), back (go back), "
-        "wait (wait for element), close_session (end browser session)."
+        "get_interactive_elements (list all buttons/inputs/links/selects with their CSS selectors), "
+        "fill_form (fill ALL form fields at once — handles text, radio, checkbox, and select inputs; "
+        "pass the group selector and desired value e.g. {\"input[name=\\\"size\\\"]\": \"large\", "
+        "\"input[name=\\\"topping\\\"]\": \"bacon\"}), "
+        "screenshot (capture current page), back (go back), "
+        "wait (wait for element), close_session (end browser session). "
+        "IMPORTANT: Use CSS selectors from the interactive elements output (shown after navigate/click/fill_form). "
+        "Do NOT guess selectors — use the ones provided. "
+        "For forms: put ALL fields (text + radio + checkbox) in a SINGLE fill_form call, then click submit."
     )
     parameters = (
-        "action: str (navigate|click|type|press_key|get_text|get_links|fill_form|screenshot|back|wait|close_session), "
+        "action: str (navigate|click|type|press_key|get_text|get_links|get_interactive_elements|fill_form|screenshot|back|wait|close_session), "
         "url: str (only needed for navigate or first visit), "
-        "selector: str (CSS selector for click/type/get_text/wait), "
-        "text: str (text to type), form_data: dict (selector:value pairs), "
+        "selector: str (CSS selector from interactive elements output — for click/type/get_text/wait), "
+        "text: str (text to type), "
+        "form_data: dict (selector:value pairs — works for text, radio, checkbox, select fields), "
         "script: str (JS for evaluate_js)"
     )
 
@@ -199,6 +337,8 @@ class BrowserTool(BaseTool):
                 return await self._get_links(page, url)
             elif action == "fill_form":
                 return await self._fill_form(page, url, form_data)
+            elif action == "get_interactive_elements":
+                return await self._get_interactive_elements(page, url)
             elif action == "evaluate_js":
                 return await self._evaluate_js(page, url, script)
             elif action == "screenshot":
@@ -223,6 +363,66 @@ class BrowserTool(BaseTool):
                 output="", success=False,
                 error=f"Browser action failed: {e}",
             )
+
+    # ------------------------------------------------------------------
+    # Interactive element extraction
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _format_interactive_elements(data: dict) -> str:
+        """Format extracted interactive elements compactly for LLM consumption."""
+        sections = []
+        if data.get("buttons"):
+            items = []
+            for i, b in enumerate(data["buttons"], 1):
+                type_hint = f", {b['type']}" if b.get("type") else ""
+                items.append(f'[{i}] "{b["label"]}" ({b["selector"]}{type_hint})')
+            sections.append("Buttons: " + "  ".join(items))
+        if data.get("inputs"):
+            items = []
+            for i, inp in enumerate(data["inputs"], 1):
+                type_hint = f", {inp['type']}" if inp.get("type") else ""
+                val = inp.get("value", "")
+                val_hint = f' = "{val}"' if val else " (empty)"
+                items.append(f'[{i}] "{inp["label"]}" ({inp["selector"]}{type_hint}){val_hint}')
+            sections.append("Inputs: " + "  ".join(items))
+        if data.get("radioGroups"):
+            items = []
+            for i, rg in enumerate(data["radioGroups"], 1):
+                sel = rg.get("selected", "")
+                sel_hint = f', selected="{sel}"' if sel else ", none selected"
+                items.append(f'[{i}] "{rg["label"]}" ({rg["selector"]}, radio, options: {rg["options"]}{sel_hint})')
+            sections.append("Radio groups: " + "  ".join(items))
+        if data.get("checkboxGroups"):
+            items = []
+            for i, cg in enumerate(data["checkboxGroups"], 1):
+                chk = cg.get("checked", "")
+                chk_hint = f', checked="{chk}"' if chk else ", none checked"
+                items.append(f'[{i}] "{cg["label"]}" ({cg["selector"]}, checkbox, options: {cg["options"]}{chk_hint})')
+            sections.append("Checkbox groups: " + "  ".join(items))
+        if data.get("selects"):
+            items = []
+            for i, s in enumerate(data["selects"], 1):
+                opts = f", options: {s['options']}" if s.get("options") else ""
+                sel = s.get("selected", "")
+                sel_hint = f', selected="{sel}"' if sel else ""
+                items.append(f'[{i}] "{s["label"]}" ({s["selector"]}{opts}{sel_hint})')
+            sections.append("Selects: " + "  ".join(items))
+        if data.get("links"):
+            items = []
+            for i, l in enumerate(data["links"], 1):
+                items.append(f'[{i}] "{l["label"]}" ({l["selector"]})')
+            sections.append("Links: " + "  ".join(items))
+        return "\n".join(sections) if sections else "(no interactive elements found)"
+
+    async def _extract_interactive(self, page) -> str:
+        """Run the interactive elements JS and return formatted string."""
+        try:
+            data = await page.evaluate(_INTERACTIVE_ELEMENTS_JS)
+            return self._format_interactive_elements(data)
+        except Exception as e:
+            logger.debug("[Browser] Interactive element extraction failed: %s", e)
+            return "(could not extract interactive elements)"
 
     # ------------------------------------------------------------------
     # URL safety
@@ -272,7 +472,8 @@ class BrowserTool(BaseTool):
         text = await page.evaluate("() => document.body.innerText")
         if len(text) > _MAX_CONTENT:
             text = text[:_MAX_CONTENT] + "\n[... content truncated]"
-        output = f"Page: {title}\nURL: {page.url}\n\n{text}"
+        interactive = await self._extract_interactive(page)
+        output = f"Page: {title}\nURL: {page.url}\n\n{text}\n\n--- Interactive Elements ---\n{interactive}"
         if config.ENABLE_INJECTION_DETECTION:
             from app.core.injection import sanitize_content
             output = sanitize_content(output, context="web page")
@@ -286,15 +487,29 @@ class BrowserTool(BaseTool):
             )
         if err := await self._maybe_navigate(page, url):
             return err
-        await page.click(selector)
+        try:
+            await page.click(selector)
+        except Exception as click_err:
+            interactive = await self._extract_interactive(page)
+            return ToolResult(
+                output="",
+                success=False,
+                error=(
+                    f"Selector '{selector}' not found. "
+                    f"Available elements:\n{interactive}"
+                ),
+            )
         await page.wait_for_load_state("domcontentloaded")
         title = await page.title()
-        # Return some page text so the LLM knows what happened
         text = await page.evaluate("() => document.body.innerText")
         if len(text) > 3000:
             text = text[:3000] + "\n[... truncated]"
+        interactive = await self._extract_interactive(page)
         return ToolResult(
-            output=f"Clicked '{selector}'. Page: {title} ({page.url})\n\n{text}",
+            output=(
+                f"Clicked '{selector}'. Page: {title} ({page.url})\n\n{text}"
+                f"\n\n--- Interactive Elements ---\n{interactive}"
+            ),
             success=True,
         )
 
@@ -306,7 +521,18 @@ class BrowserTool(BaseTool):
             )
         if err := await self._maybe_navigate(page, url):
             return err
-        await page.fill(selector, text)
+        try:
+            await page.fill(selector, text)
+        except Exception:
+            interactive = await self._extract_interactive(page)
+            return ToolResult(
+                output="",
+                success=False,
+                error=(
+                    f"Selector '{selector}' not found. "
+                    f"Available elements:\n{interactive}"
+                ),
+            )
         return ToolResult(
             output=f"Typed '{text[:80]}' into '{selector}' {self._page_summary(page)}",
             success=True,
@@ -384,6 +610,77 @@ class BrowserTool(BaseTool):
             output = sanitize_content(output, context="web page links")
         return ToolResult(output=output, success=True)
 
+    async def _fill_field(self, page, sel: str, value: str) -> None:
+        """Fill a single form field, auto-detecting type for radio/checkbox/select."""
+        el_info = await page.evaluate(
+            """(sel) => {
+                const el = document.querySelector(sel);
+                if (!el) return null;
+                const tag = el.tagName.toLowerCase();
+                const type = (el.type || '').toLowerCase();
+                // For radio/checkbox groups, collect all values in this name group
+                let values = [];
+                if ((type === 'radio' || type === 'checkbox') && el.name) {
+                    document.querySelectorAll(
+                        el.tagName + '[name="' + el.name + '"]'
+                    ).forEach(r => values.push(r.value));
+                }
+                return {tag: tag, type: type, name: el.name || '', values: values};
+            }""",
+            sel,
+        )
+        if el_info is None:
+            raise ValueError(f"Selector '{sel}' not found")
+
+        tag = el_info["tag"]
+        el_type = el_info["type"]
+        group_values = el_info.get("values", [])
+
+        if tag == "select":
+            # Try exact, then case-insensitive label/value match
+            try:
+                await page.select_option(sel, value)
+            except Exception:
+                await page.select_option(sel, label=value)
+        elif el_type == "radio":
+            # Find matching value (case-insensitive)
+            match = next(
+                (v for v in group_values if v.lower() == value.lower()),
+                None,
+            )
+            if match is None:
+                raise ValueError(
+                    f"Radio '{sel}' has no value matching '{value}' "
+                    f"(available: {', '.join(group_values)})"
+                )
+            name = el_info["name"]
+            await page.click(f'input[name="{name}"][value="{match}"]')
+        elif el_type == "checkbox":
+            name = el_info["name"]
+            # If value looks like a checkbox value/label, check the right one
+            bool_values = {"true", "false", "0", "1", "on", "off", "yes", "no", ""}
+            if value.lower() in bool_values:
+                want_checked = value.lower() not in ("false", "0", "off", "no", "")
+                is_checked = await page.is_checked(sel)
+                if is_checked != want_checked:
+                    await page.click(sel)
+            else:
+                # Value is a label/name — find the checkbox with matching value
+                match = next(
+                    (v for v in group_values if v.lower() == value.lower()),
+                    None,
+                )
+                if match and name:
+                    target = f'input[name="{name}"][value="{match}"]'
+                    if not await page.is_checked(target):
+                        await page.click(target)
+                else:
+                    # Fallback: just check this one
+                    if not await page.is_checked(sel):
+                        await page.click(sel)
+        else:
+            await page.fill(sel, value)
+
     async def _fill_form(self, page, url: str, form_data: dict | None) -> ToolResult:
         if not form_data:
             return ToolResult(
@@ -393,14 +690,29 @@ class BrowserTool(BaseTool):
         if err := await self._maybe_navigate(page, url):
             return err
         filled = []
+        failed = []
         for sel, value in form_data.items():
-            await page.fill(sel, str(value))
-            filled.append(f"  {sel} = {str(value)[:50]}")
-        return ToolResult(
-            output=f"Filled {len(filled)} field(s) {self._page_summary(page)}:\n"
-                   + "\n".join(filled),
-            success=True,
-        )
+            try:
+                await self._fill_field(page, sel, str(value))
+                filled.append(f"  {sel} = {str(value)[:50]}")
+            except Exception:
+                failed.append(sel)
+        if failed and not filled:
+            interactive = await self._extract_interactive(page)
+            return ToolResult(
+                output="",
+                success=False,
+                error=(
+                    f"Selector(s) not found: {', '.join(failed)}. "
+                    f"Available elements:\n{interactive}"
+                ),
+            )
+        interactive = await self._extract_interactive(page)
+        output = f"Filled {len(filled)} field(s) {self._page_summary(page)}:\n" + "\n".join(filled)
+        if failed:
+            output += f"\n\nFailed selectors: {', '.join(failed)}"
+        output += f"\n\n--- Interactive Elements (current state) ---\n{interactive}"
+        return ToolResult(output=output, success=True)
 
     async def _evaluate_js(self, page, url: str, script: str) -> ToolResult:
         if not script:
@@ -484,6 +796,17 @@ class BrowserTool(BaseTool):
             text = text[:3000] + "\n[... truncated]"
         return ToolResult(
             output=f"Went back. Page: {title} ({page.url})\n\n{text}",
+            success=True,
+        )
+
+    async def _get_interactive_elements(self, page, url: str) -> ToolResult:
+        """Return all interactive elements on the current page with selectors."""
+        if err := await self._maybe_navigate(page, url):
+            return err
+        interactive = await self._extract_interactive(page)
+        title = await page.title()
+        return ToolResult(
+            output=f"Page: {title} ({page.url})\n\n{interactive}",
             success=True,
         )
 

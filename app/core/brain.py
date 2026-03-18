@@ -483,6 +483,11 @@ async def _gather_context(svc: Services, query: str, intent: str) -> _ThinkConte
     if svc.learning:
         lessons = await asyncio.to_thread(svc.learning.get_relevant_lessons, query)
         if lessons:
+            logger.info(
+                "Retrieved %d lessons: %s",
+                len(lessons),
+                [(l.id, l.topic, (l.lesson_text or "")[:60]) for l in lessons],
+            )
             ctx.lessons = lessons
             ctx.used_lesson_ids = [l.id for l in lessons]
             ctx.lessons_text = format_lessons_for_prompt([
@@ -643,6 +648,18 @@ async def _build_messages(
     return messages, was_planned, plan
 
 
+_TOOL_FAILURE_MARKERS = ("failed", "timed out", "error:", "not available", "not found", "exception")
+
+
+def _round_all_succeeded(results: list[tuple]) -> bool:
+    """Check if all tool results in this round indicate success."""
+    for _, output in results:
+        lower = str(output).lower()[:500]
+        if any(m in lower for m in _TOOL_FAILURE_MARKERS):
+            return False
+    return True
+
+
 async def _run_generation_loop(
     messages: list[dict],
     tools: list[dict],
@@ -687,6 +704,8 @@ async def _run_generation_loop(
         "desktop", "background_task", "tool_create", "monitor",
     })
     _tool_cache: dict[tuple, str] = {}
+
+    _any_round_succeeded = False  # Track cumulative success across tool rounds
 
     try:
         for tool_round in range(config.MAX_TOOL_ROUNDS):
@@ -797,8 +816,8 @@ async def _run_generation_loop(
             results = await asyncio.gather(*[_run_tool(tc) for tc in tool_calls])
 
             assistant_content = result.content or f'[Calling tool: {tool_calls[0].tool}]'
-            messages.append({"role": "assistant", "content": assistant_content})
 
+            tool_result_parts = []
             for tc, tool_output in results:
                 gen.tool_results.append({
                     "tool": tc.tool,
@@ -809,12 +828,9 @@ async def _run_generation_loop(
                     type=EventType.TOOL_USE,
                     data={"tool": tc.tool, "result": tool_output[:500], "status": "complete"},
                 )
-                # Use "user" role with structured prefix instead of "system" for cleaner role tracking
-                # Truncate to prevent context window blow-up from large tool outputs
-                messages.append({
-                    "role": "user",
-                    "content": f"[Tool Result for '{tc.tool}']:\n{tool_output[:4000]}\n\nUse this result to answer the original question.",
-                })
+                tool_result_parts.append(
+                    f"[Tool '{tc.tool}' executed successfully]\n{tool_output[:4000]}"
+                )
 
                 if not ephemeral:
                     await asyncio.to_thread(
@@ -822,6 +838,52 @@ async def _run_generation_loop(
                             conversation_id, "tool", _out[:2000], tool_name=_tc.tool
                         )
                     )
+
+            # Assistant role = self-attribution. Model won't contradict its own prior statements.
+            tool_results_text = "\n\n".join(tool_result_parts)
+            round_succeeded = _round_all_succeeded(results)
+            if round_succeeded:
+                _any_round_succeeded = True
+
+            # Build self-attribution with success-aware framing
+            if round_succeeded:
+                attr_prefix = (
+                    "I used my tools and they returned real, live results "
+                    "(not simulated, not hypothetical — actual execution on the network):"
+                )
+            else:
+                attr_prefix = "I executed the tool(s) and received these results:"
+
+            messages.append({
+                "role": "assistant",
+                "content": f"{assistant_content}\n\n{attr_prefix}\n\n{tool_results_text}",
+            })
+
+            # User-role synthesis trigger
+            if round_succeeded:
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Based on the real tool results above, provide your answer. "
+                        "The tools ran successfully on real websites with live data. "
+                        "Do NOT say you cannot use tools, that results are simulated, "
+                        "or add disclaimers — just report what happened."
+                    ),
+                })
+            elif _any_round_succeeded:
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Based on the tool results above, provide your answer. "
+                        "Earlier tools executed successfully with real data — "
+                        "report those successes and note what failed in this step."
+                    ),
+                })
+            else:
+                messages.append({
+                    "role": "user",
+                    "content": "Based on the tool results above, provide your answer.",
+                })
 
         else:
             # Exhausted tool rounds

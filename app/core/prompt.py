@@ -77,6 +77,7 @@ Rules:
 - After the tool runs, you'll receive the result. Use it to form your final answer.
 - You can chain multiple tool calls (one per response) to build up complex answers
 - Never fabricate tool results. If a tool fails, say it failed.
+- Tool results represent YOUR actions — you executed the tool and received real data. Never say you "cannot" use a tool that already returned results.
 
 ## Tool Creation
 
@@ -326,6 +327,20 @@ def build_system_prompt(
     return result
 
 
+_FAILURE_CONTEXT_PHRASES = frozenset({
+    "fail", "error", "timeout", "timed out", "cannot", "limitation",
+    "unable", "truncated", "incomplete", "unavailable",
+})
+
+
+def _is_failure_context_lesson(text: str) -> bool:
+    """Check if lesson text is about handling tool/action failures."""
+    if not text:
+        return False
+    lower = text.lower()
+    return sum(1 for p in _FAILURE_CONTEXT_PHRASES if p in lower) >= 2
+
+
 def _confidence_label(confidence: float) -> str:
     """Map a confidence score to a relevance label."""
     if confidence >= 0.8:
@@ -336,10 +351,17 @@ def _confidence_label(confidence: float) -> str:
 
 
 def format_lessons_for_prompt(lessons: list) -> str:
-    """Format lessons as a prompt block with confidence indicators."""
+    """Format lessons as a prompt block with confidence indicators.
+
+    Failure-context lessons (about handling tool errors/timeouts) are excluded.
+    They add no value: when tools fail the error is visible in tool output;
+    when tools succeed they cause the model to hallucinate "I cannot" disclaimers
+    that contradict its own successful tool results.
+    """
     if not lessons:
         return ""
     lines = []
+    skipped = 0
     for lesson in lessons:
         topic = lesson.topic if hasattr(lesson, "topic") else lesson.get("topic", "")
         lesson_text = (lesson.lesson_text if hasattr(lesson, "lesson_text") else lesson.get("lesson_text", "")) or ""
@@ -348,15 +370,30 @@ def format_lessons_for_prompt(lessons: list) -> str:
         confidence = (lesson.confidence if hasattr(lesson, "confidence") else lesson.get("confidence", 0.8)) or 0.8
         label = _confidence_label(confidence)
 
-        # Prefer lesson_text (concise one-liner), fall back to structured format
+        # Build the formatted line — skip failure-context lessons entirely
         if lesson_text:
+            if _is_failure_context_lesson(lesson_text):
+                skipped += 1
+                continue
             lines.append(f"- {label} {topic}: {lesson_text}")
         elif wrong and correct:
-            lines.append(f"- {label} {topic}: {correct}, not {wrong}")
+            text = f"{correct}, not {wrong}"
+            if _is_failure_context_lesson(text):
+                skipped += 1
+                continue
+            lines.append(f"- {label} {topic}: {text}")
         elif correct:
+            if _is_failure_context_lesson(correct):
+                skipped += 1
+                continue
             lines.append(f"- {label} {topic}: {correct}")
         else:
             lines.append(f"- {label} {topic}")
+
+    if skipped:
+        logger.debug("Excluded %d failure-context lessons from prompt", skipped)
+    if not lines:
+        return ""
     return "## Lessons From Past Corrections\n\nApply these — your owner taught you these:\n\n" + "\n".join(lines)
 
 
