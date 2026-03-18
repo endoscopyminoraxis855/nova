@@ -140,10 +140,33 @@ class CuriosityQueue:
             return 0.0
         return len(words_a & words_b) / len(words_a | words_b)
 
+    # Patterns indicating invalid/low-quality curiosity topics
+    _INVALID_TOPIC_RE = [
+        re.compile(r"(?i)^(hey|hi|hello|yo|sup|what'?s up|how are you)"),
+        re.compile(r"^\s*[\d\s\+\-\*\/\.\(\)\^%=]+\s*$"),  # pure math
+        re.compile(r"(?i)(ignore|forget|disregard|override|pretend|act as)"),
+        re.compile(r"(?i)^(yes|no|ok|sure|thanks|thank you|please|sorry)\b"),
+    ]
+
+    @classmethod
+    def _is_valid_topic(cls, topic: str) -> bool:
+        """Check if a topic is worth researching."""
+        t = topic.strip()
+        if len(t) < 10 or len(t.split()) < 3:
+            return False
+        for pat in cls._INVALID_TOPIC_RE:
+            if pat.search(t):
+                return False
+        return True
+
     def add(self, topic: str, source: str = "gap_detection", urgency: float = 0.5) -> int:
         """Add a topic to the queue. Deduplicates by boosting urgency if already pending."""
         topic = topic.strip()[:500]
         if not topic:
+            return -1
+
+        if not self._is_valid_topic(topic):
+            logger.debug("Curiosity topic rejected (validation): '%s'", topic[:80])
             return -1
 
         # Dedup: exact match

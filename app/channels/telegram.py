@@ -58,6 +58,9 @@ class TelegramBot:
 
     async def _handle_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /status command."""
+        if not self._is_allowed(update.effective_user.id):
+            await update.message.reply_text("Unauthorized")
+            return
         try:
             import httpx
             async with httpx.AsyncClient() as client:

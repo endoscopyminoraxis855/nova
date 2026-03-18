@@ -333,6 +333,12 @@ class Config:
                 f"SYSTEM_ACCESS_LEVEL must be sandboxed/standard/full/none, got '{self.SYSTEM_ACCESS_LEVEL}'"
             )
 
+        if not (0 <= self.DIGEST_HOUR <= 23):
+            warnings.append(f"DIGEST_HOUR must be 0-23, got: {self.DIGEST_HOUR}")
+
+        if self.HEARTBEAT_INTERVAL < 1:
+            warnings.append(f"HEARTBEAT_INTERVAL must be >= 1, got: {self.HEARTBEAT_INTERVAL}")
+
         return warnings
 
 

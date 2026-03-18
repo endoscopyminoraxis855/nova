@@ -1007,7 +1007,9 @@ async def _run_post_processing(
                     prev_answer = msg.content
                     found_wrong_answer = True
             elif msg.role == "user" and found_wrong_answer:
-                if msg.content != query:
+                # Skip the current correction AND any prior corrections —
+                # we want the original question, not another correction.
+                if msg.content != query and not is_likely_correction(msg.content):
                     original_query = msg.content
                     break
 
@@ -1153,7 +1155,7 @@ async def _run_post_processing(
                     )
                 )
         except Exception as e:
-            logger.debug("Reflexion storage failed: %s", e)
+            logger.warning("Reflexion storage failed: %s", e)
 
     # --- Auto skill creation (background) ---
     if (
@@ -1364,12 +1366,13 @@ async def think(
                 len(gen.tool_results) > 0
                 and not gen.is_error
                 and not any(
-                    tr.get("output", "").startswith("[Tool") and "failed" in tr.get("output", "")
+                    isinstance(tr.get("output", ""), str)
+                    and tr["output"].startswith("[Tool") and "failed" in tr["output"]
                     for tr in gen.tool_results
                 )
             )
         else:
-            skill_success = True
+            skill_success = not gen.is_error
         await asyncio.to_thread(svc.skills.record_use, ctx.matched_skill.id, skill_success)
 
     if is_new_conversation and final_content:
@@ -1466,8 +1469,8 @@ async def _extract_kg_triples(kg, query: str, answer: str) -> None:
                 safe = await kg.check_and_resolve_contradictions(s, p, o, 0.7)
                 if not safe:
                     continue
-            except Exception:
-                pass  # On failure, allow the fact through
+            except Exception as e:
+                logger.warning("KG contradiction check failed (allowing fact): %s", e)
 
             if kg.add_fact(s, p, o, confidence=0.7, source="extracted"):
                 added += 1

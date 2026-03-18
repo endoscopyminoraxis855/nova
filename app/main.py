@@ -227,14 +227,18 @@ async def lifespan(app: FastAPI):
     # Monitor store + monitor tool
     monitor_store = None
     if config.ENABLE_HEARTBEAT:
-        from app.monitors.heartbeat import MonitorStore
-        monitor_store = MonitorStore(db)
-        registry.register(MonitorTool(monitor_store=monitor_store))
-        registry.register(ReminderTool(monitor_store=monitor_store))
-        seeded = monitor_store.seed_defaults()
-        if seeded:
-            logger.info("Seeded %d default monitor(s)", seeded)
-        logger.info("Monitor store initialized (%d monitors)", len(monitor_store.list_all()))
+        try:
+            from app.monitors.heartbeat import MonitorStore
+            monitor_store = MonitorStore(db)
+            registry.register(MonitorTool(monitor_store=monitor_store))
+            registry.register(ReminderTool(monitor_store=monitor_store))
+            seeded = monitor_store.seed_defaults()
+            if seeded:
+                logger.info("Seeded %d default monitor(s)", seeded)
+            logger.info("Monitor store initialized (%d monitors)", len(monitor_store.list_all()))
+        except Exception as e:
+            logger.warning("Monitor store init failed (heartbeat disabled): %s", e)
+            monitor_store = None
 
     # Curiosity engine + topic tracker
     curiosity_queue = None
@@ -347,33 +351,46 @@ async def lifespan(app: FastAPI):
         logger.info("Signal bot starting (polling mode)...")
 
     # Start heartbeat + proactive engines
+    def _on_bg_task_done(task: asyncio.Task) -> None:
+        """Log unhandled exceptions from monitor background tasks."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error("Background task %s died: %s", task.get_name(), exc, exc_info=exc)
+
     heartbeat_loop = None
     daily_digest = None
     if config.ENABLE_HEARTBEAT and monitor_store:
-        from app.monitors.heartbeat import HeartbeatLoop
-        from app.monitors.proactive import DailyDigest
-        heartbeat_loop = HeartbeatLoop(
-            monitor_store,
-            discord_bot=discord_bot,
-            telegram_bot=telegram_bot,
-            whatsapp_bot=whatsapp_bot,
-            signal_bot=signal_bot,
-        )
-        heartbeat_loop.start()
-        svc.heartbeat = heartbeat_loop
-        logger.info("Heartbeat loop started")
-
-        if config.ENABLE_PROACTIVE:
-            daily_digest = DailyDigest(
+        try:
+            from app.monitors.heartbeat import HeartbeatLoop
+            from app.monitors.proactive import DailyDigest
+            heartbeat_loop = HeartbeatLoop(
                 monitor_store,
                 discord_bot=discord_bot,
                 telegram_bot=telegram_bot,
                 whatsapp_bot=whatsapp_bot,
                 signal_bot=signal_bot,
-                learning_engine=learning,
             )
-            daily_digest.start()
-            logger.info("Daily digest started (hour=%d)", config.DIGEST_HOUR)
+            task = heartbeat_loop.start()
+            task.add_done_callback(_on_bg_task_done)
+            svc.heartbeat = heartbeat_loop
+            logger.info("Heartbeat loop started")
+
+            if config.ENABLE_PROACTIVE:
+                daily_digest = DailyDigest(
+                    monitor_store,
+                    discord_bot=discord_bot,
+                    telegram_bot=telegram_bot,
+                    whatsapp_bot=whatsapp_bot,
+                    signal_bot=signal_bot,
+                    learning_engine=learning,
+                )
+                dtask = daily_digest.start()
+                dtask.add_done_callback(_on_bg_task_done)
+                logger.info("Daily digest started (hour=%d)", config.DIGEST_HOUR)
+        except Exception as e:
+            logger.warning("Heartbeat/proactive startup failed: %s", e)
 
     logger.info("Nova ready.")
 

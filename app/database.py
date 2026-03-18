@@ -163,6 +163,17 @@ CREATE TABLE IF NOT EXISTS action_log (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Heartbeat instructions
+CREATE TABLE IF NOT EXISTS heartbeat_instructions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    instruction TEXT NOT NULL,
+    schedule_seconds INTEGER DEFAULT 3600,
+    enabled INTEGER DEFAULT 1,
+    last_run_at TEXT,
+    notify_channels TEXT DEFAULT 'discord,telegram',
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_reflexions_outcome ON reflexions(outcome);
 CREATE INDEX IF NOT EXISTS idx_reflexions_quality ON reflexions(quality_score);

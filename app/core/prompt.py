@@ -6,7 +6,10 @@ Block 1 (Identity + Reasoning) is the most critical text in the entire project.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +318,10 @@ def build_system_prompt(
             remaining = 0
             break
         else:
-            break  # No room for more blocks
+            skipped = [n for n, _ in truncatable[truncatable.index((name, text)):]]
+            if skipped:
+                logger.warning("Prompt budget exhausted — dropped blocks: %s", ", ".join(skipped))
+            break
 
     return result
 

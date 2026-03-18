@@ -48,6 +48,8 @@ class SignalBot:
     async def _poll_messages(self) -> None:
         """Poll signal-cli REST API for incoming messages."""
         while self._running:
+            if self._client is None or not self._running:
+                break
             try:
                 resp = await self._client.get(
                     f"{self.api_url}/v1/receive/{self.phone_number}",

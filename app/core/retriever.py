@@ -404,7 +404,7 @@ def _escape_fts5(query: str) -> str:
     # Remove FTS5 operators that could cause syntax errors
     safe = query.replace('"', "").replace("'", "")
     # Remove other FTS5 special chars
-    for char in ["*", "(", ")", "{", "}", ":", "^", "~", "+", "-", "?", "!", "@", "#", "$", "%", "&", ".", ",", ";", "/", "=", "|", "\\", "<", ">"]:
+    for char in ["*", "(", ")", "{", "}", ":", "^", "~", "+", "-", "?", "!", "@", "#", "$", "%", "&", ",", ";", "/", "=", "|", "\\", "<", ">"]:
         safe = safe.replace(char, " ")
     # Collapse whitespace
     return " ".join(safe.split())

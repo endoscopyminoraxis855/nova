@@ -200,8 +200,8 @@ class TestRetrieverFTS5:
 # ===========================================================================
 
 class TestFTS5EscapeExtended:
-    def test_strips_period(self):
-        assert "." not in _escape_fts5("hello.world")
+    def test_preserves_period(self):
+        assert "." in _escape_fts5("hello.world")
 
     def test_strips_comma(self):
         assert "," not in _escape_fts5("hello, world")
@@ -211,7 +211,7 @@ class TestFTS5EscapeExtended:
 
     def test_sentence_with_punctuation(self):
         result = _escape_fts5("Dr. Smith, Jr.; the professor")
-        assert "." not in result
+        assert "." in result  # periods preserved for domains/versions
         assert "," not in result
         assert ";" not in result
         assert "Dr" in result

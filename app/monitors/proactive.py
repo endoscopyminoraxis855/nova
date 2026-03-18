@@ -57,22 +57,27 @@ class DailyDigest:
 
     async def _loop(self) -> None:
         """Check every 15 minutes if it's digest time."""
-        await asyncio.sleep(30)  # Let things initialize
+        try:
+            await asyncio.sleep(30)  # Let things initialize
 
-        while self._running:
-            try:
-                now = datetime.now(timezone.utc)
-                today = now.strftime("%Y-%m-%d")
+            while self._running:
+                try:
+                    now = datetime.now(timezone.utc)
+                    today = now.strftime("%Y-%m-%d")
 
-                # Send digest if it's the right hour and we haven't sent today.
-                # Note: DIGEST_HOUR is compared against UTC (datetime.now(timezone.utc)).
-                if now.hour == config.DIGEST_HOUR and self._last_digest != today:
-                    await self.send_digest()
-                    self._last_digest = today
-            except Exception as e:
-                logger.error("[Digest] Loop failed: %s", e)
+                    # Send digest if it's the right hour and we haven't sent today.
+                    # Note: DIGEST_HOUR is compared against UTC (datetime.now(timezone.utc)).
+                    if now.hour == config.DIGEST_HOUR and self._last_digest != today:
+                        await self.send_digest()
+                        self._last_digest = today
+                except Exception as e:
+                    logger.error("[Digest] Loop failed: %s", e)
 
-            await asyncio.sleep(900)  # Check every 15 min
+                await asyncio.sleep(900)  # Check every 15 min
+        except asyncio.CancelledError:
+            logger.info("[Digest] Loop cancelled")
+        except Exception as e:
+            logger.error("[Digest] Loop terminated unexpectedly: %s", e)
 
     async def send_digest(self) -> str | None:
         """Compile and send the daily digest. Returns the digest text."""

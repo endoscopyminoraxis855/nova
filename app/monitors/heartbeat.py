@@ -648,33 +648,38 @@ class HeartbeatLoop:
 
     async def _loop(self) -> None:
         """Main loop — check due monitors every HEARTBEAT_INTERVAL seconds."""
-        # Small delay on startup to let services initialize
-        await asyncio.sleep(10)
+        try:
+            # Small delay on startup to let services initialize
+            await asyncio.sleep(10)
 
-        while self._running:
-            try:
-                due = self.store.get_due()
-                if due:
-                    logger.info("[Heartbeat] %d monitor(s) due", len(due))
-                    for monitor in due:
+            while self._running:
+                try:
+                    due = self.store.get_due()
+                    if due:
+                        logger.info("[Heartbeat] %d monitor(s) due", len(due))
+                        for monitor in due:
+                            try:
+                                await self._check_monitor(monitor)
+                            except Exception as e:
+                                logger.error("[Heartbeat] Monitor '%s' failed: %s", monitor.name, e)
+                                self.store.record_check(monitor.id, f"error: {e}")
+                                self.store.add_result(monitor.id, "error", message=str(e))
+
+                    # Execute due heartbeat instructions
+                    due_instructions = self.store.get_due_instructions()
+                    for inst in due_instructions:
                         try:
-                            await self._check_monitor(monitor)
+                            await self._execute_instruction(inst)
                         except Exception as e:
-                            logger.error("[Heartbeat] Monitor '%s' failed: %s", monitor.name, e)
-                            self.store.record_check(monitor.id, f"error: {e}")
-                            self.store.add_result(monitor.id, "error", message=str(e))
+                            logger.error("[Heartbeat] Instruction #%d failed: %s", inst.id, e)
+                except Exception as e:
+                    logger.error("[Heartbeat] Loop iteration failed: %s", e)
 
-                # Execute due heartbeat instructions
-                due_instructions = self.store.get_due_instructions()
-                for inst in due_instructions:
-                    try:
-                        await self._execute_instruction(inst)
-                    except Exception as e:
-                        logger.error("[Heartbeat] Instruction #%d failed: %s", inst.id, e)
-            except Exception as e:
-                logger.error("[Heartbeat] Loop iteration failed: %s", e)
-
-            await asyncio.sleep(config.HEARTBEAT_INTERVAL)
+                await asyncio.sleep(config.HEARTBEAT_INTERVAL)
+        except asyncio.CancelledError:
+            logger.info("[Heartbeat] Loop cancelled")
+        except Exception as e:
+            logger.error("[Heartbeat] Loop terminated unexpectedly: %s", e)
 
     async def _check_monitor(self, monitor: Monitor) -> None:
         """Execute a single monitor check."""
@@ -1025,12 +1030,15 @@ class HeartbeatLoop:
         if not lessons:
             return "[No lessons to quiz on — skipped]"
 
-        # Spaced repetition: prioritize by failures (desc) then last_quizzed_at (asc/null first)
+        # Spaced repetition: skip lessons stuck in failure loops (5+ failures, quizzed < 7 days ago)
         db = svc.learning._db
         lesson = None
         row = db.fetchone(
             "SELECT id FROM lessons "
-            "ORDER BY quiz_failures DESC, last_quizzed_at ASC NULLS FIRST "
+            "WHERE quiz_failures < 5 "
+            "   OR last_quizzed_at < datetime('now', '-7 days') "
+            "   OR last_quizzed_at IS NULL "
+            "ORDER BY last_quizzed_at ASC NULLS FIRST, quiz_failures DESC "
             "LIMIT 1"
         )
         if row:
@@ -1252,15 +1260,16 @@ class HeartbeatLoop:
                             max_tokens=200, model=config.FAST_MODEL,
                         )
                         obj = llm_mod.extract_json_object(raw)
-                        if obj and obj.get("lesson"):
+                        lesson_text = (obj.get("lesson", "") if obj else "").strip()
+                        if obj and lesson_text and len(lesson_text) >= 20:
                             from app.core.learning import Correction
                             correction = Correction(
                                 user_message=f"Curiosity research on: {item.topic[:100]}",
                                 previous_answer="",
                                 topic=obj.get("topic", item.topic[:100]),
                                 wrong_answer="",
-                                correct_answer=obj["lesson"],
-                                lesson_text=obj["lesson"],
+                                correct_answer=lesson_text,
+                                lesson_text=lesson_text,
                             )
                             svc.learning.save_lesson(correction)
                     except Exception as e:
@@ -1344,6 +1353,12 @@ class HeartbeatLoop:
         if not candidates:
             return "[No monitor candidates found — skipped]"
 
+        # Filter out invalid/low-quality topics
+        from app.core.curiosity import CuriosityQueue
+        candidates = [c for c in candidates if CuriosityQueue._is_valid_topic(c["topic"])]
+        if not candidates:
+            return "[No valid monitor candidates — skipped]"
+
         # Filter out topics that already have monitors
         existing_monitors = {m.name.lower() for m in self.store.list_all()}
         auto_count = sum(1 for name in existing_monitors if name.startswith("auto:"))
@@ -1382,21 +1397,37 @@ class HeartbeatLoop:
         svc = get_services()
         parts = []
         if svc.learning:
-            decayed = svc.learning.decay_stale_lessons(days=30)
-            if decayed:
-                parts.append(f"lessons decayed: {decayed}")
+            try:
+                decayed = svc.learning.decay_stale_lessons(days=30)
+                if decayed:
+                    parts.append(f"lessons decayed: {decayed}")
+            except Exception as e:
+                parts.append(f"lesson decay failed: {e}")
+                logger.warning("[Heartbeat] Lesson decay failed: %s", e)
         if svc.kg:
-            decayed = svc.kg.decay_stale(days=60)
-            if decayed:
-                parts.append(f"KG facts decayed: {decayed}")
+            try:
+                decayed = svc.kg.decay_stale(days=60)
+                if decayed:
+                    parts.append(f"KG facts decayed: {decayed}")
+            except Exception as e:
+                parts.append(f"KG decay failed: {e}")
+                logger.warning("[Heartbeat] KG decay failed: %s", e)
         if svc.reflexions:
-            decayed = svc.reflexions.decay_stale(days=90)
-            if decayed:
-                parts.append(f"reflexions decayed: {decayed}")
+            try:
+                decayed = svc.reflexions.decay_stale(days=90)
+                if decayed:
+                    parts.append(f"reflexions decayed: {decayed}")
+            except Exception as e:
+                parts.append(f"reflexion decay failed: {e}")
+                logger.warning("[Heartbeat] Reflexion decay failed: %s", e)
         if svc.curiosity:
-            pruned = svc.curiosity.prune(days=30)
-            if pruned:
-                parts.append(f"curiosity items pruned: {pruned}")
+            try:
+                pruned = svc.curiosity.prune(days=30)
+                if pruned:
+                    parts.append(f"curiosity items pruned: {pruned}")
+            except Exception as e:
+                parts.append(f"curiosity prune failed: {e}")
+                logger.warning("[Heartbeat] Curiosity prune failed: %s", e)
         return f"MAINTENANCE | {', '.join(parts)}" if parts else "[No maintenance needed]"
 
     async def _execute_finetune_check(self, cfg: dict) -> str:
@@ -1480,15 +1511,14 @@ class HeartbeatLoop:
             parts.append(f"Previous result:\n{monitor.last_result[:400]}")
 
         parts.append(
-            "Write a concise, friendly 1-3 sentence alert message for the user. "
-            "Be specific about what changed and why it matters. "
-            "Sound natural, like a thoughtful assistant noticing something."
+            "Write a 1-2 sentence alert. Be specific about what changed. "
+            "No preamble or filler."
         )
 
         try:
             analysis = await llm.invoke_nothink(
                 [{"role": "user", "content": "\n\n".join(parts)}],
-                max_tokens=200,
+                max_tokens=150,
                 temperature=0.4,
             )
             return analysis.strip()
@@ -1538,8 +1568,10 @@ class HeartbeatLoop:
 
         if sent:
             logger.info("[Heartbeat] Alert sent for '%s'", monitor.name)
+        elif self._discord or self._telegram or self._whatsapp or self._signal:
+            logger.error("[Heartbeat] ALL notification channels failed for '%s'", monitor.name)
         else:
-            logger.warning("[Heartbeat] No channels available for alert '%s'", monitor.name)
+            logger.warning("[Heartbeat] No channels configured for alert '%s'", monitor.name)
 
     async def trigger_monitor(self, monitor_id: int) -> dict:
         """Manually trigger a monitor check. Returns result info."""
