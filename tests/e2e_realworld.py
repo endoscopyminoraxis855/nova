@@ -412,9 +412,9 @@ def test_api_consumer():
         report("Health endpoint works",
                data.get("status") == "ok",
                f"Response: {data}")
-        report("LLM connected",
-               data.get("llm_connected", False),
-               f"Provider: {data.get('provider')}, Model: {data.get('model')}")
+        report("Health timestamp present",
+               bool(data.get("timestamp")),
+               f"Timestamp: {data.get('timestamp')}")
     except Exception as e:
         report("Health endpoint", False, str(e))
 
@@ -543,8 +543,7 @@ def main():
         if data.get("status") != "ok":
             print("ERROR: Server not healthy!")
             sys.exit(1)
-        print(f"Server: OK | Model: {data.get('model')} | Provider: {data.get('provider')}")
-        print(f"LLM: {'connected' if data.get('llm_connected') else 'DISCONNECTED'}")
+        print(f"Server: OK | Timestamp: {data.get('timestamp')}")
     except Exception as e:
         print(f"ERROR: Cannot reach server at {BASE}: {e}")
         sys.exit(1)

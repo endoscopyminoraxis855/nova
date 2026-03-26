@@ -63,10 +63,11 @@ def main():
     user_data = os.path.join(tempfile.gettempdir(), "nova-browser-profile")
     os.makedirs(user_data, exist_ok=True)
 
+    bind_address = os.environ.get("CDP_BIND_ADDRESS", "127.0.0.1")
     args = [
         chrome,
         f"--remote-debugging-port={port}",
-        "--remote-debugging-address=0.0.0.0",
+        f"--remote-debugging-address={bind_address}",
         "--remote-allow-origins=*",
         f"--user-data-dir={user_data}",
         "--no-first-run",

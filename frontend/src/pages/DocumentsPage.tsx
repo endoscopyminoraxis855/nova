@@ -432,6 +432,7 @@ export default function DocumentsPage() {
             <EmptyState
               icon={<FileText size={40} strokeWidth={1.5} />}
               title="No documents ingested yet."
+              description="Upload text files, paste content, or provide a URL above. Documents are chunked, embedded, and searchable."
             />
           ) : (
             <div className="overflow-x-auto rounded-lg border border-nova-border">

@@ -24,7 +24,7 @@ Research into the latest Claude-based tools, AI agents, and similar projects to 
 | **Weaknesses** | Cloud-only, coding-focused (not a general personal assistant), no self-learning |
 
 ### B. OpenClaw (formerly Clawdbot / Moltbot)
-**What it is:** Open-source autonomous personal AI agent. 145K+ GitHub stars. Created by Peter Steinberger.
+**What it is:** Open-source autonomous personal AI agent. 216K+ GitHub stars. Created by Peter Steinberger.
 **Category:** Personal AI assistant (local-first)
 
 | Aspect | Details |
@@ -72,12 +72,12 @@ Research into the latest Claude-based tools, AI agents, and similar projects to 
 3. **Curiosity engine** — auto-detects hedging, ignorance, and tool failures, then queues autonomous background research
 4. **Knowledge graph + hybrid retrieval + learning** in a single system with temporal tracking
 5. **Zero cloud dependency** — truly sovereign with bundled Ollama
-6. **Proactive heartbeat system** — 14 monitors doing scheduled research, health checks, skill validation, fine-tune readiness, and domain studies
+6. **Proactive heartbeat system** — 51 monitors doing scheduled research, health checks, skill validation, fine-tune readiness, and domain studies
 7. **MCP server** — exposes Nova intelligence to external agents (Claude Code, Cursor)
 
 ### Where Nova is weaker than competitors:
 1. **Codebase-scale coding** — Claude Code and Cursor handle 500K+ line codebases
-2. **Community/ecosystem** — OpenClaw has 145K+ stars, Nova is private
+2. **Community/ecosystem** — OpenClaw has 216K+ stars, Nova is private
 3. **Multi-agent orchestration** — Devin and Cursor run parallel sub-agents
 
 ### Previously weak — now resolved:
@@ -163,11 +163,11 @@ OpenClaw was flagged by Cisco and Palo Alto for a "lethal trifecta" of security 
 | Background task delegation | Sub-agents | No | Yes | Sub-agents | **Yes** |
 | Fine-tuning pipeline | No | No | Internal | No | **Yes (automated + A/B eval)** |
 | Codebase-scale coding | **500K+ lines** | No | **Yes** | **Yes** | No (not the focus) |
-| Community size | Anthropic-backed | **145K+ stars** | VC-backed | VC-backed | Private |
+| Community size | Anthropic-backed | **216K+ stars** | VC-backed | VC-backed | Private |
 
 ### Remaining Gaps (Honest Assessment)
 
-1. **Community** — Nova is private. OpenClaw has 145K+ stars, massive contributor base, plugin ecosystem. This matters for adoption and bug-finding. Open-sourcing under AGPL-3.0 is the next step.
+1. **Community** — Nova is private. OpenClaw has 216K+ stars, massive contributor base, plugin ecosystem. This matters for adoption and bug-finding. Open-sourcing under AGPL-3.0 is the next step.
 
 2. **Multi-agent orchestration** — Claude Code and Devin can spawn parallel sub-agents with deep coordination. Nova has background tasks but not true multi-agent planning.
 
@@ -353,7 +353,7 @@ Eight major open-source projects compete in the self-hosted personal AI space. T
 | Offline capable | **Yes** | No | No | Yes (w/ Ollama) | Yes (w/ Ollama) | No | No | Partial |
 | | | | | | | | | |
 | **MATURITY** | | | | | | | | |
-| Test suite | **1,430+ tests** | Unknown | Moderate | Moderate | Limited | Moderate | Good | Moderate |
+| Test suite | **1,700+ tests** | Unknown | Moderate | Moderate | Limited | Moderate | Good | Moderate |
 | Documentation | **Excellent** | Good | Good | Good | Good | Good | Excellent | Good |
 | Production readiness | **High** | Moderate (security) | High | High | High | High | High | Moderate |
 
@@ -377,7 +377,7 @@ Eight major open-source projects compete in the self-hosted personal AI space. T
 
 4. **Security posture is best-in-class.** 4-tier access control, prompt injection detection (4 categories with Unicode normalization), SSRF with DNS rebinding defense, HMAC skill signing, training data poisoning prevention, Docker hardening. OpenClaw has been flagged by security researchers as dangerous.
 
-5. **Proactive intelligence is unique.** 14 scheduled monitors doing domain research, self-reflection, skill validation, maintenance, and curiosity research. No other personal AI assistant has this.
+5. **Proactive intelligence is unique.** 51 scheduled monitors across 29 domains doing domain research, self-reflection, skill validation, maintenance, and curiosity research. No other personal AI assistant has this.
 
 6. **MCP dual-mode is unique.** Nova is both an MCP client (consumes external tools) and MCP server (exposes its intelligence). No other personal AI assistant does both.
 
@@ -406,7 +406,7 @@ No other project combines:
 - Full self-improvement pipeline (corrections → DPO → fine-tuning)
 - Temporal knowledge graph
 - Hybrid retrieval with RRF fusion
-- 14 proactive monitors with domain research
+- 51 autonomous monitors across 29 domains with domain research
 - Defense-in-depth security (OWASP agentic compliance)
 - MCP dual-mode (client + server)
 

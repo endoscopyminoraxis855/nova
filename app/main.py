@@ -19,6 +19,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app import __version__
+from app.auth import _get_client_ip
 from app.config import config
 
 # Correlation ID for request tracing
@@ -75,6 +77,12 @@ async def lifespan(app: FastAPI):
     # --- Startup ---
     logger.info("Nova starting up...")
 
+    # Auth check — warn prominently if API_KEY is not set
+    if not config.API_KEY:
+        logger.critical(
+            "*** SECURITY WARNING: NOVA_API_KEY is not set — all endpoints are publicly accessible! ***"
+        )
+
     # Validate configuration
     config_warnings = config.validate()
     if config_warnings:
@@ -92,6 +100,10 @@ async def lifespan(app: FastAPI):
     db = get_db()
     db.init_schema()
     logger.info("Database initialized at %s", config.DB_PATH)
+
+    # Restore auth lockout state from DB
+    from app.auth import load_lockouts_from_db
+    load_lockouts_from_db()
 
     # Core services
     conversations = ConversationStore(db)
@@ -111,6 +123,7 @@ async def lifespan(app: FastAPI):
 
     # KG auto-curation (heuristic pass runs inline, LLM pass runs in background)
     # Note: KG/reflexion decay is handled by the daily maintenance monitor
+    kg_curation_task = None
     try:
         curation = await kg.curate(sample_size=0)  # heuristic only — fast
         heuristic_cleaned = curation.get("heuristic", 0)
@@ -126,7 +139,7 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.warning("KG LLM curation failed (non-blocking): %s", e)
 
-        asyncio.create_task(_bg_kg_curate())
+        kg_curation_task = asyncio.create_task(_bg_kg_curate())
     except Exception as e:
         logger.warning("KG curation failed: %s", e)
 
@@ -399,6 +412,13 @@ async def lifespan(app: FastAPI):
     # --- Shutdown ---
     logger.info("Nova shutting down...")
 
+    # Cancel KG curation task if still running
+    try:
+        if kg_curation_task is not None and not kg_curation_task.done():
+            kg_curation_task.cancel()
+    except NameError:
+        pass  # kg_curation_task was never assigned (curation failed at startup)
+
     # Stop heartbeat + proactive
     if heartbeat_loop:
         heartbeat_loop.stop()
@@ -416,6 +436,8 @@ async def lifespan(app: FastAPI):
         await signal_bot.close()
     for task in channel_tasks:
         task.cancel()
+    if channel_tasks:
+        await asyncio.gather(*channel_tasks, return_exceptions=True)
 
     # Unload Whisper model
     if config.ENABLE_VOICE:
@@ -442,11 +464,16 @@ async def lifespan(app: FastAPI):
     close_all()
 
 
+_docs_url = None if config.API_KEY else "/docs"
+_redoc_url = None if config.API_KEY else "/redoc"
+
 app = FastAPI(
     title="Nova",
-    version="1.0.0",
+    version=__version__,
     description="Sovereign Personal AI",
     lifespan=lifespan,
+    docs_url=_docs_url,
+    redoc_url=_redoc_url,
 )
 
 # Rate limiting — simple in-memory per-IP limiter
@@ -470,9 +497,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path == "/api/health":
             return await call_next(request)
 
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = _get_client_ip(request)
         now = time.time()
         cutoff = now - self.window
+
+        _HARD_CAP = 10_000  # Absolute max tracked IPs to prevent memory exhaustion
 
         async with self._lock:
             # Prune old entries for this IP
@@ -485,33 +514,48 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 for ip in stale:
                     del self._requests[ip]
 
+            # Hard cap: if still too many IPs after stale eviction, drop oldest entries
+            if len(self._requests) > _HARD_CAP:
+                # Sort by most recent request timestamp, keep newest _HARD_CAP // 2
+                sorted_ips = sorted(
+                    self._requests.items(),
+                    key=lambda kv: kv[1][-1] if kv[1] else 0,
+                    reverse=True,
+                )
+                keep = _HARD_CAP // 2
+                self._requests.clear()
+                for ip, ts in sorted_ips[:keep]:
+                    self._requests[ip] = ts
+
             current_count = len(self._requests[client_ip])
 
-            if current_count >= self.max_requests:
+            # Read limit dynamically so runtime config changes take effect
+            effective_limit = config.RATE_LIMIT_RPM
+            if current_count >= effective_limit:
                 # Find earliest expiry for reset time
                 reset_time = int(self._requests[client_ip][0] + self.window)
                 return JSONResponse(
                     status_code=429,
                     content={"detail": "Too many requests. Try again later."},
                     headers={
-                        "X-RateLimit-Limit": str(self.max_requests),
+                        "X-RateLimit-Limit": str(effective_limit),
                         "X-RateLimit-Remaining": "0",
                         "X-RateLimit-Reset": str(reset_time),
                     },
                 )
 
             self._requests[client_ip].append(now)
-            remaining = self.max_requests - current_count - 1
+            remaining = effective_limit - current_count - 1
             reset_time = int(now + self.window)
 
         response = await call_next(request)
-        response.headers["X-RateLimit-Limit"] = str(self.max_requests)
+        response.headers["X-RateLimit-Limit"] = str(effective_limit)
         response.headers["X-RateLimit-Remaining"] = str(remaining)
         response.headers["X-RateLimit-Reset"] = str(reset_time)
         return response
 
 
-app.add_middleware(RateLimitMiddleware, max_requests=60, window_seconds=60)
+app.add_middleware(RateLimitMiddleware, max_requests=config.RATE_LIMIT_RPM, window_seconds=60)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -522,7 +566,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; connect-src 'self'"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         return response
 

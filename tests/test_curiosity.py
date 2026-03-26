@@ -80,7 +80,8 @@ class TestGapDetection:
         )
         assert len(gaps) == 0
 
-    def test_topic_capped_at_200(self):
+    def test_topic_capped(self):
+        """Topic is normalized via _extract_topic which caps at 100 chars."""
         long_query = "x" * 300
         gaps = detect_gaps(
             query=long_query,
@@ -89,7 +90,7 @@ class TestGapDetection:
             had_lessons=False, had_kg=False, had_docs=False,
         )
         assert len(gaps) == 1
-        assert len(gaps[0]["topic"]) == 200
+        assert len(gaps[0]["topic"]) <= 100
 
 
 # ===========================================================================

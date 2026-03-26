@@ -20,7 +20,7 @@ if sys.platform == "win32":
 
 import httpx
 
-API = "http://localhost:8000"
+API = os.getenv("NOVA_API_URL", "http://localhost:8000")
 SLOW = 0.03  # typing speed (seconds per char)
 
 
@@ -128,10 +128,8 @@ def main():
     nova_says(answer2[:300])
     time.sleep(1)
 
-    nova_event(">>> Correction detected!")
-    nova_event(">>> Lesson extracted: topic='1984 author', lesson='Eric Arthur Blair (pen name George Orwell)'")
-    nova_event(">>> DPO training pair saved to training_data.jsonl")
-    time.sleep(2)
+    # Events are real — emitted by the API via SSE. Check status to verify.
+    time.sleep(3)  # Give background processing time to complete
 
     # --- Step 4: Verify lesson was stored ---
     header("Step 4: Verify — lesson stored in database")

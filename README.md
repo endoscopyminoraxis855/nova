@@ -1,7 +1,7 @@
 # Nova
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1%2C443%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1%2C453%20passing-brightgreen)](tests/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://python.org)
 [![Release](https://img.shields.io/github/v/release/HeliosNova/nova)](https://github.com/HeliosNova/nova/releases)
 
@@ -44,7 +44,7 @@ Nova is a sovereign personal AI that runs entirely on your hardware with zero cl
 | Zero cloud dependency | **Yes (bundled Ollama)** | No (needs API keys) | Partial | Partial |
 | Prompt injection defense | **4-category detection** | No (CVE'd) | No | No |
 | Messaging channels | **4 (all with allowlisting)** | 22+ | 3 | 0 |
-| Proactive monitors | **14 scheduled** | Heartbeat | Automations | No |
+| Proactive monitors | **51 across 29 domains** | Heartbeat | Automations | No |
 | MCP (client + server) | **Both** | No | No | Client only |
 
 ## Quick Start
@@ -84,9 +84,15 @@ User query -> brain.think()
   -> tool loop if needed (max 5 rounds, 21 tools available)
   -> stream tokens via SSE
   -> post-response: correction detection, fact extraction, reflexion, curiosity
+
+Meanwhile, 51 monitors run autonomously:
+  -> web search across 29 domains every 1-24h
+  -> extract knowledge graph triples from every result
+  -> send alerts via Discord/Telegram when something changes
+  -> quiz itself on learned lessons, validate skills, research gaps
 ```
 
-No LangChain. No LangGraph. No agent frameworks. ~74 files of async Python + httpx + FastAPI.
+No LangChain. No LangGraph. No agent frameworks. ~79 files of async Python + httpx + FastAPI.
 
 ## The Learning Loop
 
@@ -147,32 +153,33 @@ All channels support phone-number allowlisting, message splitting, and graceful 
 
 ## Heartbeat Monitors
 
-14 proactive monitors run on schedule — Nova works even when you're not talking to it:
+51 autonomous monitors run on schedule across 29 domains — Nova works even when you're not talking to it:
 
-| Monitor | Schedule | What it does |
-|---------|----------|-------------|
-| Morning Check-in | Daily | Greeting + agenda |
-| System Health | 2h | Memory, disk, Ollama status |
-| Self-Reflection | Daily | Quality self-assessment |
-| Science / Tech / Events / Finance | 8-12h | Domain research → KG triples |
-| World Awareness | 4h | Global news monitoring |
-| Lesson Quiz | 6h | Self-tests on learned lessons |
-| Skill Validation | 12h | Tests skill effectiveness |
-| Curiosity Research | 1h | Researches queued knowledge gaps |
-| Auto-Monitor Detector | Daily | Detects new monitoring needs |
-| System Maintenance | Daily | Decays stale data, prunes |
-| Fine-Tune Check | Weekly | Reports when ready for retraining |
+| Category | Monitors | Schedule | What they do |
+|----------|----------|----------|-------------|
+| **Operational** | Morning Check-in, System Health, Self-Reflection, System Maintenance, Fine-Tune Check | 2h-weekly | Health checks, self-assessment, data hygiene |
+| **Self-Improvement** | Lesson Quiz, Skill Validation, Curiosity Research, Auto-Monitor Detector | 1-12h | Self-tests on learned lessons, validates skills, researches knowledge gaps |
+| **Financial Intelligence** | Finance, Crypto & Web3, DeFi & Protocols, Whale Watch, Top Trades & Positioning, Commodities & Forex, Earnings & Corporate Events, Economics & Markets | 6-12h | Whale movements, trader positioning, commodity prices, earnings, macro data |
+| **International** | China Tech & Economy, Russia & Eastern Europe, Middle East, India, Europe & EU, Latin America, Africa & Emerging Markets | 8-24h | Regional perspectives from every major economic zone |
+| **Science & Tech** | Science, Technology, AI & ML, Space & Astronomy, Quantum Computing, Robotics & Autonomy, Physics & Mathematics, Biotech & Genetics, Semiconductors | 8-24h | Research breakthroughs, model releases, chip industry, gene therapy |
+| **Policy & Security** | US Policy & Regulation, Cybersecurity, Energy & Climate, Defense & Military Tech | 12h | Regulation, CVEs, climate policy, defense contracts |
+| **Culture & Local** | Sports, Entertainment & Gaming, Social Media Platforms, Local: Los Angeles | 6-12h | Scores, releases, platform changes, local news |
+| **Developer** | Open Source & GitHub, Developer Ecosystem, Startups & VC | 12h | Trending repos, framework releases, funding rounds |
+| **Global** | World Awareness, Current Events, Geopolitics, Supply Chain & Trade, Climate & Weather, Research Frontiers | 4-24h | Breaking news, trade disruptions, trending papers |
+
+Every query-type monitor auto-extracts knowledge graph triples. All results include today's date — no stale content.
 
 ## Knowledge Graph
 
-Temporal knowledge graph with structured facts:
+Temporal knowledge graph that grows autonomously — 200+ new facts per day from 37 domain monitors:
 
-- 20 canonical predicates (`is_a`, `located_in`, `created_by`, etc.)
+- 20 canonical predicates (`is_a`, `located_in`, `created_by`, `price_of`, `developed_by`, etc.)
 - `valid_from` / `valid_to` — when a fact was true
-- `superseded_by` — tracks how facts change over time
+- `superseded_by` — tracks how facts change over time (old facts aren't deleted, they're versioned)
 - `provenance` — which source/conversation created it
 - `query_at(entity, timestamp)` — what was true at a specific time
 - Auto-curation: heuristic + LLM pass removes garbage triples
+- Facts are used in chat: relevant KG triples are injected into the system prompt for contextual answers
 
 ## MCP Integration
 
@@ -229,7 +236,7 @@ Built with [OWASP Agentic Security](https://genai.owasp.org/) in mind:
 docker exec nova-app sh -c "python -m pytest tests/ -v"
 ```
 
-1,443 tests across 57 files: brain pipeline, learning loop, tools, channels, monitors, security offensive, stress/concurrency, behavioral, and e2e.
+1,453 tests across 60+ files: brain pipeline, learning loop, tools, channels, monitors, security offensive, stress/concurrency, behavioral, and e2e.
 
 ## Hardware Requirements
 

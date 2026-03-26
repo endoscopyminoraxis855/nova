@@ -239,7 +239,7 @@ def load_skills(skills_dir: str | None = None) -> list[ExternalSkill]:
     return skills
 
 
-def match_skill(query: str, skills: list[ExternalSkill], threshold: float = 0.2) -> ExternalSkill | None:
+def match_skill(query: str, skills: list[ExternalSkill], threshold: float = 0.3) -> ExternalSkill | None:
     """Find the best matching external skill for a query using Jaccard overlap.
 
     Returns the top match if similarity >= threshold, else None.

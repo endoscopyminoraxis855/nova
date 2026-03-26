@@ -16,17 +16,17 @@ No other open-source AI assistant has this learning loop.
 - Correction detection (2-stage: regex + LLM) → lesson extraction → DPO training data → automated fine-tuning with A/B eval
 - Temporal knowledge graph (20 predicates, fact supersession, provenance tracking)
 - Hybrid retrieval (ChromaDB vectors + SQLite FTS5 + Reciprocal Rank Fusion)
-- 21 tools, 4 messaging channels (Discord/Telegram/WhatsApp/Signal), 14 proactive monitors
+- 21 tools, 4 messaging channels (Discord/Telegram/WhatsApp/Signal), 51 autonomous monitors across 29 domains
 - MCP client AND server (expose Nova's intelligence to Claude Code, Cursor, etc.)
 
 **What it's not:**
 - Not a ChatGPT wrapper — runs Qwen3.5:27b locally via Ollama, zero cloud dependency
-- Not a LangChain/LangGraph project — single async pipeline, ~74 files of plain Python
+- Not a LangChain/LangGraph project — single async pipeline, ~79 files of plain Python
 - Not a coding agent — it's a personal assistant (but you can connect it to coding agents via MCP)
 
 **Security:** 4-tier access control, prompt injection detection (4 categories), SSRF protection, HMAC skill signing, Docker hardening (read-only root, no-new-privileges, all caps dropped). Built with OWASP Agentic Security in mind — unlike certain 200K-star projects that got CVE'd within weeks of launch.
 
-**Stack:** Python, FastAPI, httpx, Ollama, ChromaDB, SQLite, React. 1,443 tests.
+**Stack:** Python, FastAPI, httpx, Ollama, ChromaDB, SQLite, React. 1,453 tests.
 
 No GPU? Set `LLM_PROVIDER=openai` and use cloud inference while keeping all data local.
 
@@ -55,16 +55,16 @@ No other open-source project has this full pipeline.
 **Beyond the learning loop:**
 - Temporal knowledge graph (facts track when they were valid, supersession chains)
 - Hybrid retrieval (ChromaDB + FTS5 + RRF fusion — not just vector search)
-- 14 proactive monitors doing scheduled research, self-reflection, skill validation
+- 51 autonomous monitors across 29 domains doing scheduled research, self-reflection, skill validation
 - Curiosity engine — detects knowledge gaps and queues background research
 - 4 messaging channels (Discord, Telegram, WhatsApp, Signal)
 - MCP client + server
 
 **Hardware:** RTX 3090 for local Qwen3.5:27b. Or set LLM_PROVIDER=openai/anthropic/google for cloud inference (data stays local).
 
-**Not a LangChain project.** Single async pipeline, ~74 files of Python. No frameworks.
+**Not a LangChain project.** Single async pipeline, ~79 files of Python. No frameworks.
 
-1,443 tests. AGPL-3.0.
+1,453 tests. AGPL-3.0.
 
 https://github.com/HeliosNova/nova
 
@@ -105,7 +105,7 @@ https://github.com/HeliosNova/nova
 
 ## 4. Reddit r/opensource
 
-**Title:** Nova — AGPL-3.0 personal AI that learns from corrections and fine-tunes itself. 1,443 tests, zero cloud dependency.
+**Title:** Nova — AGPL-3.0 personal AI that learns from corrections and fine-tunes itself. 1,453 tests, zero cloud dependency.
 
 **Body:**
 
@@ -118,11 +118,11 @@ No other open-source project combines:
 - Sovereign (zero cloud dependency, bundled Ollama)
 - Knowledge graph (temporal, with fact supersession)
 - Hybrid retrieval (vectors + BM25 + reciprocal rank fusion)
-- Proactive (14 scheduled monitors doing research, maintenance, self-testing)
+- Proactive (51 autonomous monitors doing scheduled research across finance, geopolitics, science, crypto, sports, and 24 more domains)
 - Secure (4-tier access, injection detection, HMAC signing, Docker hardening)
 
 Stack: Python, FastAPI, SQLite, ChromaDB, Ollama, React
-Tests: 1,443 across 57 files
+Tests: 1,453 across 60+ files
 License: AGPL-3.0
 
 https://github.com/HeliosNova/nova
@@ -265,14 +265,14 @@ The prompt injection detector runs on every piece of external content — web se
 - **Frontend:** React + TypeScript + Vite
 - **Search:** SearXNG (privacy-respecting, self-hosted)
 - **Deployment:** Docker Compose (4 services)
-- **Tests:** 1,443 across 57 files (including security offensive, stress, and behavioral tests)
+- **Tests:** 1,453 across 60+ files (including security offensive, stress, and behavioral tests)
 
 No GPU? Use `docker-compose.cloud.yml` — cloud handles inference, all data stays on your machine.
 
 ## What else it does
 
 - **Temporal knowledge graph** — facts track when they were valid, with supersession chains and provenance. Query what was true at any point in time.
-- **14 proactive monitors** — scheduled domain research, self-reflection, lesson quizzes, skill validation, system maintenance. Nova works even when you're not talking to it.
+- **51 autonomous monitors across 29 domains** — scheduled domain research, self-reflection, lesson quizzes, skill validation, system maintenance. Nova works even when you're not talking to it.
 - **4 messaging channels** — Discord, Telegram, WhatsApp, Signal. All with phone-number allowlisting.
 - **MCP dual-mode** — consumes external tools (client) AND exposes its intelligence to Claude Code, Cursor, etc. (server). No other personal AI does both.
 - **21 built-in tools** — web search, calculator, code execution, browser, email, calendar, webhooks, file ops, shell, and more.

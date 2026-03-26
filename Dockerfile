@@ -32,7 +32,7 @@ COPY pytest.ini .
 # Data directory + non-root user
 RUN mkdir -p /data /data/screenshots /data/mcp && \
     useradd -m -u 1000 nova && \
-    chown -R nova:nova /app /data
+    chown -R nova:nova /app /data /home/nova
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

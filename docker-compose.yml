@@ -54,6 +54,7 @@ services:
       SEARXNG_URL: http://searxng:8080
       DB_PATH: /data/nova.db
       CHROMADB_PATH: /data/chromadb
+      ANONYMIZED_TELEMETRY: "false"
       TRAINING_DATA_PATH: /data/training_data.jsonl
       MCP_CONFIG_DIR: /data/mcp
       ENABLE_SHELL_EXEC: "true"
@@ -98,7 +99,10 @@ services:
       nova:
         condition: service_healthy
     environment:
-      VITE_API_URL: http://nova:8000
+      # Browser-accessible URL (not internal docker network name)
+      VITE_API_URL: http://localhost:8000
+      # Allow internal Docker hostnames for inter-container access
+      __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: nova-frontend
     volumes:
       - ./frontend/src:/app/src        # hot-reload source changes
       - ./frontend/index.html:/app/index.html

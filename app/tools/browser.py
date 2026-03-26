@@ -11,12 +11,14 @@ import logging
 import time
 
 from app.config import config
-from app.tools.base import BaseTool, ToolResult
+from app.core.access_tiers import requires_tier
+from app.tools.base import BaseTool, ToolResult, ErrorCategory
 from app.tools.http_fetch import _is_safe_url
 
 logger = logging.getLogger(__name__)
 
-_MAX_CONTENT = 8000
+def _max_content_length() -> int:
+    return config.TOOL_OUTPUT_MAX_CHARS
 _SESSION_TIMEOUT = 600  # 10 min idle timeout
 
 # ---------------------------------------------------------------------------
@@ -32,7 +34,7 @@ _INTERACTIVE_ELEMENTS_JS = """
     }
     function getSelector(el) {
         if (el.id) return '#' + CSS.escape(el.id);
-        if (el.name) return el.tagName.toLowerCase() + '[name="' + el.name + '"]';
+        if (el.name) return el.tagName.toLowerCase() + '[name="' + el.name.replace(/"/g, '\\\\"') + '"]';
         const classes = Array.from(el.classList).filter(c => c.length > 0 && c.length < 40);
         if (classes.length) {
             const sel = el.tagName.toLowerCase() + '.' + classes.map(c => CSS.escape(c)).join('.');
@@ -152,20 +154,14 @@ _INTERACTIVE_ELEMENTS_JS = """
 class BrowserTool(BaseTool):
     name = "browser"
     description = (
-        "Control a persistent web browser. Sessions survive across calls so you can "
-        "log in, navigate multi-step workflows, and interact with web apps. "
-        "Actions: navigate (go to URL — returns page text AND interactive elements with CSS selectors), "
-        "click (click element by CSS selector), type (type into field), "
-        "press_key (press Enter/Tab/etc.), get_text (read page/element text), get_links (list links), "
-        "get_interactive_elements (list all buttons/inputs/links/selects with their CSS selectors), "
-        "fill_form (fill ALL form fields at once — handles text, radio, checkbox, and select inputs; "
-        "pass the group selector and desired value e.g. {\"input[name=\\\"size\\\"]\": \"large\", "
-        "\"input[name=\\\"topping\\\"]\": \"bacon\"}), "
-        "screenshot (capture current page), back (go back), "
-        "wait (wait for element), close_session (end browser session). "
-        "IMPORTANT: Use CSS selectors from the interactive elements output (shown after navigate/click/fill_form). "
-        "Do NOT guess selectors — use the ones provided. "
-        "For forms: put ALL fields (text + radio + checkbox) in a SINGLE fill_form call, then click submit."
+        "Control a persistent web browser for multi-step web interactions. "
+        "Sessions survive across calls, enabling login flows, form filling, and multi-page navigation. "
+        "Actions: navigate (load URL, returns page text and interactive elements), click (CSS selector), "
+        "type (fill field), press_key, get_text, get_links, get_interactive_elements, "
+        "fill_form (fill all fields at once), evaluate_js (run JavaScript), screenshot, back, wait, close_session. "
+        "Always use CSS selectors from the interactive elements output — do NOT guess selectors. "
+        "For forms, use a single fill_form call with all fields, then click submit. "
+        "Do NOT use for simple URL fetches (use http_fetch) or screenshots of a URL (use screenshot tool)."
     )
     parameters = (
         "action: str (navigate|click|type|press_key|get_text|get_links|get_interactive_elements|fill_form|screenshot|back|wait|close_session), "
@@ -175,33 +171,77 @@ class BrowserTool(BaseTool):
         "form_data: dict (selector:value pairs — works for text, radio, checkbox, select fields), "
         "script: str (JS for evaluate_js)"
     )
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["navigate", "click", "type", "press_key", "get_text", "get_links",
+                         "get_interactive_elements", "fill_form", "evaluate_js",
+                         "screenshot", "back", "wait", "close_session"],
+                "description": "Browser action to perform.",
+            },
+            "url": {
+                "type": "string",
+                "description": "URL to navigate to. Required for navigate, optional for other actions (uses current page if omitted).",
+            },
+            "selector": {
+                "type": "string",
+                "description": "CSS selector for the target element. Use selectors from interactive elements output.",
+            },
+            "text": {
+                "type": "string",
+                "description": "Text to type, or key name for press_key (e.g., 'Enter', 'Tab').",
+            },
+            "form_data": {
+                "type": "object",
+                "description": "Dict of CSS selector to value pairs for fill_form. Handles text, radio, checkbox, and select inputs.",
+            },
+            "script": {
+                "type": "string",
+                "description": "JavaScript code for evaluate_js action.",
+            },
+        },
+        "required": ["action"],
+    }
 
     _playwright = None
     _browser = None
-    _context = None       # Persistent browser context (holds cookies/state)
-    _page = None          # Persistent page (holds navigation state)
     _last_used = 0.0      # Timestamp for session timeout
 
-    async def _get_page(self):
-        """Return the persistent page, creating browser/context/page if needed."""
+    def trim_output(self, output: str) -> str:
+        """Keep page header + text excerpt + interactive elements."""
+        if len(output) <= 2000:
+            return output
+        # Try to preserve the interactive elements section at the end
+        ie_marker = '--- Interactive Elements'
+        ie_idx = output.rfind(ie_marker)
+        if ie_idx > 0:
+            ie_section = output[ie_idx:][:500]
+            budget = 2000 - len(ie_section) - 20
+            return output[:budget] + '\n[...truncated]\n' + ie_section
+        return output[:2000] + '\n[...truncated]'
+
+    async def _ensure_browser(self):
+        """Ensure the shared browser is running; create playwright + browser if needed."""
         now = time.time()
 
-        # Session timeout — close stale sessions
-        if (BrowserTool._page and BrowserTool._last_used
+        # Session timeout — close stale browser
+        if (BrowserTool._browser and BrowserTool._last_used
                 and now - BrowserTool._last_used > _SESSION_TIMEOUT):
             logger.info("[Browser] Session timed out after %ds idle", _SESSION_TIMEOUT)
             await self._close_session()
 
-        BrowserTool._last_used = now
-
-        # Reuse existing page if browser is still connected and page is usable
-        if (BrowserTool._page and BrowserTool._browser
-                and BrowserTool._browser.is_connected()):
+        # Reuse existing browser if still connected
+        if BrowserTool._browser and BrowserTool._browser.is_connected():
             try:
-                await BrowserTool._page.evaluate("1")  # Quick liveness check
-                return BrowserTool._page
+                # Quick liveness check — create and close a throwaway context
+                test_ctx = await BrowserTool._browser.new_context()
+                await test_ctx.close()
+                BrowserTool._last_used = now
+                return
             except Exception:
-                logger.info("[Browser] Stale session detected, reconnecting")
+                logger.info("[Browser] Stale browser detected, reconnecting")
 
         # Clean up anything stale
         await self._close_session()
@@ -240,33 +280,25 @@ class BrowserTool(BaseTool):
             )
             logger.info("[Browser] Launched headless browser")
 
-        BrowserTool._context = await BrowserTool._browser.new_context(
+        BrowserTool._last_used = now
+
+    async def _new_context_and_page(self):
+        """Create a fresh isolated browser context + page for a single execute() call."""
+        context = await BrowserTool._browser.new_context(
             viewport={"width": 1280, "height": 720},
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
             ),
         )
-        BrowserTool._context.set_default_timeout(config.BROWSER_TIMEOUT * 1000)
-        BrowserTool._page = await BrowserTool._context.new_page()
-        logger.info("[Browser] New session started")
-        return BrowserTool._page
+        context.set_default_timeout(config.BROWSER_TIMEOUT * 1000)
+        page = await context.new_page()
+        logger.info("[Browser] New isolated context created")
+        return context, page
 
     @classmethod
     async def _close_session(cls):
-        """Close the persistent session (context + browser)."""
-        if cls._page:
-            try:
-                await cls._page.close()
-            except Exception:
-                pass
-            cls._page = None
-        if cls._context:
-            try:
-                await cls._context.close()
-            except Exception:
-                pass
-            cls._context = None
+        """Close the shared browser + playwright."""
         if cls._browser:
             try:
                 await cls._browser.close()
@@ -283,6 +315,7 @@ class BrowserTool(BaseTool):
     # Keep the old name for shutdown hooks
     _close_browser = _close_session
 
+    @requires_tier("standard", "full")
     async def execute(
         self,
         *,
@@ -302,6 +335,7 @@ class BrowserTool(BaseTool):
                     "No action specified. Use: navigate, click, type, get_text, "
                     "get_links, fill_form, screenshot, back, wait, close_session."
                 ),
+                error_category=ErrorCategory.VALIDATION,
             )
 
         try:
@@ -311,6 +345,7 @@ class BrowserTool(BaseTool):
                 output="",
                 success=False,
                 error="Playwright not installed. Browser tool unavailable.",
+                error_category=ErrorCategory.PERMISSION,
             )
 
         action = action.lower()
@@ -320,8 +355,10 @@ class BrowserTool(BaseTool):
             await self._close_session()
             return ToolResult(output="Browser session closed.", success=True)
 
+        context = None
         try:
-            page = await self._get_page()
+            await self._ensure_browser()
+            context, page = await self._new_context_and_page()
 
             if action == "navigate":
                 return await self._navigate(page, url)
@@ -352,6 +389,7 @@ class BrowserTool(BaseTool):
                     output="",
                     success=False,
                     error=f"Unknown action '{action}'.",
+                    error_category=ErrorCategory.VALIDATION,
                 )
 
         except Exception as e:
@@ -362,7 +400,15 @@ class BrowserTool(BaseTool):
             return ToolResult(
                 output="", success=False,
                 error=f"Browser action failed: {e}",
+                retriable=True,
+                error_category=ErrorCategory.TRANSIENT,
             )
+        finally:
+            if context:
+                try:
+                    await context.close()
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # Interactive element extraction
@@ -432,11 +478,12 @@ class BrowserTool(BaseTool):
     def _check_url(url: str) -> ToolResult | None:
         """Return a ToolResult error if URL is unsafe, else None."""
         if not url:
-            return ToolResult(output="", success=False, error="No URL provided")
+            return ToolResult(output="", success=False, error="No URL provided", error_category=ErrorCategory.VALIDATION)
         if not _is_safe_url(url):
             return ToolResult(
                 output="", success=False,
                 error="URL blocked: internal/private addresses not allowed",
+                error_category=ErrorCategory.PERMISSION,
             )
         return None
 
@@ -449,6 +496,7 @@ class BrowserTool(BaseTool):
                 return ToolResult(
                     output="", success=False,
                     error="No URL provided and no page loaded. Use navigate first.",
+                    error_category=ErrorCategory.VALIDATION,
                 )
             return None
         if err := self._check_url(url):
@@ -470,8 +518,8 @@ class BrowserTool(BaseTool):
         await page.goto(url, wait_until="domcontentloaded")
         title = await page.title()
         text = await page.evaluate("() => document.body.innerText")
-        if len(text) > _MAX_CONTENT:
-            text = text[:_MAX_CONTENT] + "\n[... content truncated]"
+        if len(text) > _max_content_length():
+            text = text[:_max_content_length()] + "\n[... content truncated]"
         interactive = await self._extract_interactive(page)
         output = f"Page: {title}\nURL: {page.url}\n\n{text}\n\n--- Interactive Elements ---\n{interactive}"
         if config.ENABLE_INJECTION_DETECTION:
@@ -484,6 +532,7 @@ class BrowserTool(BaseTool):
             return ToolResult(
                 output="", success=False,
                 error="'selector' is required for click.",
+                error_category=ErrorCategory.VALIDATION,
             )
         if err := await self._maybe_navigate(page, url):
             return err
@@ -498,6 +547,7 @@ class BrowserTool(BaseTool):
                     f"Selector '{selector}' not found. "
                     f"Available elements:\n{interactive}"
                 ),
+                error_category=ErrorCategory.NOT_FOUND,
             )
         await page.wait_for_load_state("domcontentloaded")
         title = await page.title()
@@ -518,6 +568,7 @@ class BrowserTool(BaseTool):
             return ToolResult(
                 output="", success=False,
                 error="'selector' and 'text' are required for type.",
+                error_category=ErrorCategory.VALIDATION,
             )
         if err := await self._maybe_navigate(page, url):
             return err
@@ -532,6 +583,7 @@ class BrowserTool(BaseTool):
                     f"Selector '{selector}' not found. "
                     f"Available elements:\n{interactive}"
                 ),
+                error_category=ErrorCategory.NOT_FOUND,
             )
         return ToolResult(
             output=f"Typed '{text[:80]}' into '{selector}' {self._page_summary(page)}",
@@ -544,6 +596,7 @@ class BrowserTool(BaseTool):
             return ToolResult(
                 output="", success=False,
                 error="'text' parameter required for press_key (e.g. 'Enter', 'Tab').",
+                error_category=ErrorCategory.VALIDATION,
             )
         allowed = {
             "enter", "tab", "escape", "backspace", "delete", "space",
@@ -554,6 +607,7 @@ class BrowserTool(BaseTool):
             return ToolResult(
                 output="", success=False,
                 error=f"Key '{key}' not allowed. Use: {', '.join(sorted(allowed))}",
+                error_category=ErrorCategory.VALIDATION,
             )
         await page.keyboard.press(key)
         try:
@@ -581,12 +635,13 @@ class BrowserTool(BaseTool):
                 return ToolResult(
                     output="", success=False,
                     error=f"Selector '{selector}' not found on {page.url}",
+                    error_category=ErrorCategory.NOT_FOUND,
                 )
             text = await element.inner_text()
         else:
             text = await page.evaluate("() => document.body.innerText")
-        if len(text) > _MAX_CONTENT:
-            text = text[:_MAX_CONTENT] + "\n[... content truncated]"
+        if len(text) > _max_content_length():
+            text = text[:_max_content_length()] + "\n[... content truncated]"
         if config.ENABLE_INJECTION_DETECTION:
             from app.core.injection import sanitize_content
             text = sanitize_content(text, context="web page")
@@ -609,6 +664,11 @@ class BrowserTool(BaseTool):
             from app.core.injection import sanitize_content
             output = sanitize_content(output, context="web page links")
         return ToolResult(output=output, success=True)
+
+    @staticmethod
+    def _escape_css_value(s: str) -> str:
+        """Escape characters that are special in CSS selector attribute values."""
+        return s.replace("\\", "\\\\").replace('"', '\\"').replace("]", "\\]")
 
     async def _fill_field(self, page, sel: str, value: str) -> None:
         """Fill a single form field, auto-detecting type for radio/checkbox/select."""
@@ -653,8 +713,9 @@ class BrowserTool(BaseTool):
                     f"Radio '{sel}' has no value matching '{value}' "
                     f"(available: {', '.join(group_values)})"
                 )
-            name = el_info["name"]
-            await page.click(f'input[name="{name}"][value="{match}"]')
+            name = self._escape_css_value(el_info["name"])
+            match_escaped = self._escape_css_value(match)
+            await page.click(f'input[name="{name}"][value="{match_escaped}"]')
         elif el_type == "checkbox":
             name = el_info["name"]
             # If value looks like a checkbox value/label, check the right one
@@ -671,7 +732,9 @@ class BrowserTool(BaseTool):
                     None,
                 )
                 if match and name:
-                    target = f'input[name="{name}"][value="{match}"]'
+                    name_escaped = self._escape_css_value(name)
+                    match_escaped = self._escape_css_value(match)
+                    target = f'input[name="{name_escaped}"][value="{match_escaped}"]'
                     if not await page.is_checked(target):
                         await page.click(target)
                 else:
@@ -686,6 +749,7 @@ class BrowserTool(BaseTool):
             return ToolResult(
                 output="", success=False,
                 error="'form_data' required (dict of selector: value).",
+                error_category=ErrorCategory.VALIDATION,
             )
         if err := await self._maybe_navigate(page, url):
             return err
@@ -706,6 +770,7 @@ class BrowserTool(BaseTool):
                     f"Selector(s) not found: {', '.join(failed)}. "
                     f"Available elements:\n{interactive}"
                 ),
+                error_category=ErrorCategory.NOT_FOUND,
             )
         interactive = await self._extract_interactive(page)
         output = f"Filled {len(filled)} field(s) {self._page_summary(page)}:\n" + "\n".join(filled)
@@ -719,6 +784,7 @@ class BrowserTool(BaseTool):
             return ToolResult(
                 output="", success=False,
                 error="'script' is required for evaluate_js.",
+                error_category=ErrorCategory.VALIDATION,
             )
 
         # Check blocked patterns BEFORE navigating (fail-fast)
@@ -750,12 +816,25 @@ class BrowserTool(BaseTool):
             (r"\bsetInterval\b", "setInterval"),
             (r"\baddEventListener\b", "addEventListener"),
             (r"\bonclick\b", "onclick handler"),
+            (r"\bdocument\s*\.\s*location\b", "document.location"),
+            (r"\bwindow\s*\.\s*location\b", "window.location"),
+            (r"\bdocument\s*\.\s*forms\b", "document.forms"),
+            (r"\bServiceWorker\b", "ServiceWorker"),
+            (r"\bindexedDB\b", "indexedDB"),
+            (r"\bsendBeacon\b", "sendBeacon"),
+            (r"\bfromCharCode\b", "fromCharCode"),
+            (r"\bfromCodePoint\b", "fromCodePoint"),
+            (r"data\s*:\s*text/html", "data:text/html"),
+            (r"\bsrcdoc\s*=", "srcdoc="),
+            (r"\batob\b", "atob"),
+            (r"\bbtoa\b", "btoa"),
         ]
         for pattern, label in _BLOCKED_PATTERNS:
             if _re.search(pattern, script):
                 return ToolResult(
                     output="", success=False,
                     error=f"Script contains blocked pattern: {label}",
+                    error_category=ErrorCategory.PERMISSION,
                 )
 
         if err := await self._maybe_navigate(page, url):
@@ -763,8 +842,8 @@ class BrowserTool(BaseTool):
 
         result = await page.evaluate(script)
         output = str(result)
-        if len(output) > _MAX_CONTENT:
-            output = output[:_MAX_CONTENT] + "\n[... truncated]"
+        if len(output) > _max_content_length():
+            output = output[:_max_content_length()] + "\n[... truncated]"
         return ToolResult(output=output, success=True)
 
     async def _screenshot(self, page) -> ToolResult:
@@ -772,7 +851,7 @@ class BrowserTool(BaseTool):
         from pathlib import Path
         from datetime import datetime, timezone
 
-        screenshot_dir = Path("/data/screenshots")
+        screenshot_dir = Path(config.SCREENSHOT_DIR)
         try:
             screenshot_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -816,6 +895,7 @@ class BrowserTool(BaseTool):
             return ToolResult(
                 output="", success=False,
                 error="'selector' is required for wait.",
+                error_category=ErrorCategory.VALIDATION,
             )
         try:
             await page.wait_for_selector(selector, timeout=10000)
@@ -823,6 +903,8 @@ class BrowserTool(BaseTool):
             return ToolResult(
                 output="", success=False,
                 error=f"Timed out waiting for '{selector}' (10s).",
+                retriable=True,
+                error_category=ErrorCategory.TRANSIENT,
             )
         return ToolResult(
             output=f"Element '{selector}' found on {page.url}",

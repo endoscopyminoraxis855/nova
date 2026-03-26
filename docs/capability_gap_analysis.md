@@ -164,7 +164,7 @@ Open Assistant (self-hosted, OAuth2-based integrations), CoPaw, and 2026 user ex
 
 | Capability | Nova | OpenClaw | Open Assistant | Gap? |
 |---|---|---|---|---|
-| Scheduled checks/monitors | YES (14 monitors) | YES (heartbeat/schedule) | NO | No (Nova wins) |
+| Scheduled checks/monitors | YES (51 monitors, 29 domains) | YES (heartbeat/schedule) | NO | No (Nova wins) |
 | Conditional actions (if X then Y) | NO (alert only) | Via skill logic | NO | **YES** |
 | Multi-step workflows | Partial (delegate) | YES (skill chains) | YES (via plugins) | **YES** |
 | Webhook triggers | YES (action_webhook) | YES | NO | No |
@@ -236,7 +236,7 @@ Don't lose sight of this — Nova has things NO competitor has:
 - Hybrid retrieval (vector + BM25 + RRF fusion)
 - Curiosity engine (auto-detects gaps, researches autonomously)
 - Reflexion store (learns from silent failures)
-- 14 proactive monitors (domain studies, quizzes, skill validation)
+- 51 autonomous monitors across 29 domains (finance, geopolitics, crypto, science, sports, etc.)
 - MCP server (exposes intelligence to other agents)
 - Prompt injection detection (4-category heuristic)
 - True sovereignty (zero cloud dependency)
