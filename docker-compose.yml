@@ -59,7 +59,9 @@ services:
       MCP_CONFIG_DIR: /data/mcp
       ENABLE_SHELL_EXEC: "true"
       XDG_CACHE_HOME: /tmp/.cache
-      # DISPLAY: ${DISPLAY:-:0}  # Uncomment for desktop automation
+      DISPLAY: ":99"  # Xvfb virtual display for desktop automation
+      XAUTHORITY: /tmp/.Xauthority
+      ENABLE_DESKTOP_AUTOMATION: "true"
     volumes:
       - nova_data:/data
       - ./mcp:/data/mcp:ro

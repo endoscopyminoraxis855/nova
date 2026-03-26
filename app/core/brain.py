@@ -827,7 +827,9 @@ async def _run_generation_loop(
 
     # Model selection
     selected_model = _select_model(query, intent, was_planned)
-    if image:
+    # Use VISION_MODEL only if explicitly set to a different model (e.g., specialized vision model).
+    # Qwen3.5 is natively multimodal — the main model handles images directly.
+    if image and config.VISION_MODEL and config.VISION_MODEL != config.LLM_MODEL:
         selected_model = config.VISION_MODEL
 
     use_thinking = config.ENABLE_EXTENDED_THINKING and not image and selected_model != config.FAST_MODEL

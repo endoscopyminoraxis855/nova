@@ -28,6 +28,7 @@ playwright==1.49.1
 
 # Desktop automation (optional — only used when ENABLE_DESKTOP_AUTOMATION=true)
 pyautogui==0.9.54
+Pillow>=10.0.0
 
 # Voice (optional — only used when ENABLE_VOICE=true)
 openai-whisper==20250625

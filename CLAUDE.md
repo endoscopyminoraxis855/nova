@@ -70,7 +70,7 @@ Main responses use `generate_with_tools()` (thinking suppressed for speed) or `s
 ### Tool Calling (Hybrid: Native + Text)
 Cloud providers (OpenAI, Anthropic, Google) use native structured tool calls returned in `result.tool_call`.
 Tools are now passed through `stream_with_thinking()` for all cloud providers, enabling streaming tool calls.
-Ollama uses prompt-based text extraction (Qwen3.5 native tool calling is broken, GitHub #14493):
+Ollama now uses native tool calling (Ollama 0.17+). Text extraction is kept as fallback:
 ```
 {"tool": "tool_name", "args": {"param": "value"}}
 ```
