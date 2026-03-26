@@ -43,7 +43,7 @@ class OllamaProvider:
         from app.core.llm import ProviderCapabilities
         return ProviderCapabilities(
             needs_emphatic_prompts=True,
-            supports_native_tools=False,  # Reverted: native tools + thinking causes empty responses
+            supports_native_tools=True,
             supports_thinking=True,
             json_prefix_behavior="prepend",
         )
@@ -320,13 +320,30 @@ class OllamaProvider:
                             content_delta = msg.get("content", "")
                             done = chunk_data.get("done", False)
 
-                            if thinking_delta or content_delta or done:
+                            # Native tool calls in stream (Ollama 0.17+)
+                            stream_tool_calls = msg.get("tool_calls")
+                            stream_tool: ToolCall | None = None
+                            if stream_tool_calls:
+                                for tc in stream_tool_calls:
+                                    func = tc.get("function", {})
+                                    name = func.get("name", "")
+                                    args = func.get("arguments", {})
+                                    if isinstance(args, str):
+                                        try:
+                                            args = json.loads(args)
+                                        except (json.JSONDecodeError, TypeError):
+                                            args = {}
+                                    if name:
+                                        stream_tool = ToolCall(tool=name, args=args)
+
+                            if thinking_delta or content_delta or done or stream_tool:
                                 if done:
                                     _yielded_done = True
                                 yield StreamChunk(
                                     thinking=thinking_delta,
                                     content=content_delta,
                                     done=done,
+                                    tool_call=stream_tool,
                                 )
                     return  # Success — exit retry loop
                 except httpx.ReadError:
