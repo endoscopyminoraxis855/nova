@@ -1854,7 +1854,21 @@ class HeartbeatLoop:
 
         # Filter out invalid/low-quality topics
         from app.core.curiosity import CuriosityQueue
-        candidates = [c for c in candidates if CuriosityQueue._is_valid_topic(c["topic"])]
+        import re as _re
+        _BAD_MONITOR_RE = _re.compile(
+            r"(?i)^(?:what|who|where|when|how|is|are|was|were|do|does|did|can|could|will|would|should)\b"  # questions
+            r"|(?i)\b(?:price|cost|worth|trading at|how much)\b"  # price queries
+            r"|(?i)\b(?:dont search|don.t search|just tell|from memory)\b"  # test queries
+            r"|(?i)\b(?:time is it|what time|current time)\b"  # time queries
+            r"|(?i)\b(?:calculate|compute|solve|equation)\b"  # math
+            r"|(?i)\b(?:write|generate|create|make me)\b",  # generation requests
+            _re.IGNORECASE,
+        )
+        candidates = [
+            c for c in candidates
+            if CuriosityQueue._is_valid_topic(c["topic"])
+            and not _BAD_MONITOR_RE.search(c["topic"])
+        ]
         if not candidates:
             return "[No valid monitor candidates — skipped]"
 
