@@ -213,6 +213,10 @@ def train(
         gradient_checkpointing=True,
     )
 
+    # Patch for TRL 0.24 + Qwen3.5 compatibility: model needs warnings_issued attr
+    if not hasattr(model, "warnings_issued"):
+        model.warnings_issued = {}
+
     trainer = DPOTrainer(
         model=model,
         args=training_args,
